@@ -1,0 +1,37 @@
+[package]
+name = "pierre-blanche-server"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies.tiered_server]
+git = "https://github.com/programingjd/tiered_server.git"
+branch = "main"
+
+[dependencies.tokio]
+version = "1.44"
+default-features = false
+features = ["rt-multi-thread"]
+
+[dependencies.hyper]
+version = "1.6"
+default-features = false
+features = []
+
+[dependencies.hyper-util]
+version = "0.1"
+default-features = false
+features = ["tokio", "server", "http1"]
+
+[dependencies.http-body-util]
+version = "0.1"
+default-features = false
+features = []
+
+[dependencies.pinboard]
+version = "2.2"
+default-features = false
+features = []
+
+[dependencies.zip_static_handler]
+version = "0.15"
+features = ["hyper"]
