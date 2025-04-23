@@ -416,9 +416,9 @@ checksum = "37909eebbb50d72f9059c3b6d82c0463f2ff062c9e95845c43a6c9c0355411be"
 
 [[package]]
 name = "firewall"
-version = "0.3.9"
+version = "0.3.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0c365b78fd58850ff1d3571f6097dcdbc77d071a7849b01123c89de75edb1803"
+checksum = "c00d65318d62de08f8156ad88960ec0d1f3e773bafdfb8e42f280faeb01bcf21"
 dependencies = [
  "cidr",
  "read_until_slice",
@@ -1626,9 +1626,9 @@ dependencies = [
 
 [[package]]
 name = "read_until_slice"
-version = "0.1.9"
+version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "861837b363a7f7f9403b32c7c89bce421d36a402aac66ff3986f975af003f5e1"
+checksum = "88d598683a871eb19386e1055b259c7d98b59d6c39ad24b4919f13a7ecfca0b2"
 dependencies = [
  "pin-project-lite",
  "tokio",
@@ -2180,7 +2180,7 @@ dependencies = [
 [[package]]
 name = "tiered_server"
 version = "0.1.0"
-source = "git+https://github.com/programingjd/tiered_server.git?branch=main#b386a6697258f924ffd3ac5f78231f77f5ad7658"
+source = "git+https://github.com/programingjd/tiered_server.git?branch=main#b8211174a639c9066e8ddcb42babe10a3037d231"
 dependencies = [
  "base64-simd",
  "basic-cookies",
@@ -2189,7 +2189,6 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
- "log",
  "minijinja",
  "multer",
  "object_store",
@@ -2326,9 +2325,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-util"
-version = "0.7.14"
+version = "0.7.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6b9590b93e6fcc1739458317cccd391ad3955e2bde8913edf6f95f9e65a8f034"
+checksum = "66a539a9ad6d5d281510d5bd368c973d636c02dbf8a67300bfb6b950696ad7df"
 dependencies = [
  "bytes",
  "futures-core",
