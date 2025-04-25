@@ -1,25 +1,56 @@
+mod myffme;
+
+use crate::myffme::ffme_auth_update_loop;
 use http_body_util::{Either, Empty, Full};
 use hyper::body::{Bytes, Incoming};
 use hyper::{Request, Response};
+use pinboard::NonEmptyPinboard;
 use std::sync::Arc;
 use tiered_server::api::Extension;
+use tiered_server::server::serve;
 use tiered_server::store::Snapshot;
-
-#[tokio::main]
-async fn main() {
-    tiered_server::server::serve(Box::leak(Box::new(ApiExtension)));
-}
+use zip_static_handler::handler::Handler;
 
 struct ApiExtension;
 
 impl Extension for ApiExtension {
     async fn handle_api_extension(
         &self,
-        request: Request<Incoming>,
-        store_cache: &Arc<pinboard::NonEmptyPinboard<Snapshot>>,
-        handler: Arc<zip_static_handler::handler::Handler>,
-        server_name: Arc<String>,
+        _request: Request<Incoming>,
+        _store_cache: &Arc<NonEmptyPinboard<Snapshot>>,
+        _handler: Arc<Handler>,
+        _server_name: Arc<String>,
     ) -> Option<Response<Either<Full<Bytes>, Empty<Bytes>>>> {
         None
     }
+}
+
+#[tokio::main]
+async fn main() {
+    #[cfg(debug_assertions)]
+    tracing_subscriber::fmt()
+        .compact()
+        .with_ansi(true)
+        .with_target(true)
+        .with_file(true)
+        .with_line_number(true)
+        .without_time()
+        .with_env_filter(tracing_subscriber::EnvFilter::new(
+            "pierre_blanche_server=debug,tiered_server=debug,zip_static_handler=info,hyper=info",
+        ))
+        .init();
+    #[cfg(not(debug_assertions))]
+    tracing_subscriber::fmt()
+        .compact()
+        .with_ansi(true)
+        .with_target(true)
+        .with_file(true)
+        .with_line_number(true)
+        .without_time()
+        .with_env_filter(tracing_subscriber::EnvFilter::new(
+            "pierre_blanche_server=debug,tiered_server=warn,zip_static_handler=info,hyper=info",
+        ))
+        .init();
+    ffme_auth_update_loop();
+    serve(Box::leak(Box::new(ApiExtension))).await;
 }

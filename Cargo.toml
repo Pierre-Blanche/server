@@ -1,26 +1,35 @@
 [package]
-name = "pierre-blanche-server"
+name = "pierre_blanche_server"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies.tiered_server]
-git = "https://github.com/programingjd/tiered_server.git"
-branch = "main"
+path = "../tiered_server"
+#git = "https://github.com/programingjd/tiered_server.git"
+#branch = "main"
+
+[dependencies.tracing-subscriber]
+version = "0.3"
+features = ["env-filter"]
+
+[dependencies.tracing]
+version = "0.1"
+default-features = false
+features = ["std"]
 
 [dependencies.tokio]
 version = "1.44"
 default-features = false
-features = ["rt-multi-thread"]
+features = ["rt", "rt-multi-thread"]
 
 [dependencies.hyper]
 version = "1.6"
 default-features = false
 features = []
 
-[dependencies.hyper-util]
-version = "0.1"
-default-features = false
-features = ["tokio", "server", "http1"]
+[dependencies.reqwest]
+version = "0.12"
+features = ["blocking", "rustls-tls", "multipart", "json", "deflate", "gzip", "brotli"]
 
 [dependencies.http-body-util]
 version = "0.1"
@@ -32,6 +41,26 @@ version = "2.2"
 default-features = false
 features = []
 
+[dependencies.serde]
+version = "1.0"
+default-features = false
+features = ["std", "derive"]
+
+[dependencies.serde_json]
+version = "1.0"
+default-features = false
+features = ["std", "preserve_order"]
+
 [dependencies.zip_static_handler]
-version = "0.15"
+version = "0.16"
+default-features = false
 features = ["hyper"]
+
+[dependencies.fastrand]
+version = "2.3"
+default-features = false
+features = ["std", "getrandom"]
+
+#[profile.release]
+#lto = "fat"
+#codegen-units = 1
