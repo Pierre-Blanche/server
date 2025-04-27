@@ -7,6 +7,7 @@ use reqwest::tls::Version;
 use reqwest::{Client, Url};
 use serde::Deserialize;
 use serde_json::json;
+use std::collections::BTreeMap;
 use std::sync::LazyLock;
 use std::thread;
 use std::time::{Duration, SystemTime};
@@ -252,7 +253,7 @@ fn current_season() -> u16 {
 
 pub(crate) async fn search(name: Option<&str>, dob: Option<u32>) -> Option<Vec<Licensee>> {
     #[derive(Deserialize)]
-    pub(crate) struct Licensee {
+    pub(crate) struct LicenseeInfo {
         #[serde(rename = "fullname")]
         pub(crate) name: String,
         #[serde(rename = "birthdate", deserialize_with = "deserialize_date")]
@@ -278,7 +279,7 @@ pub(crate) async fn search(name: Option<&str>, dob: Option<u32>) -> Option<Vec<L
     }
     drop(query);
     debug!("GET {}", url.as_str());
-    client()
+    let licensee = client()
         .get(url.as_str())
         .header(ORIGIN, HeaderValue::from_static("https://app.myffme.fr"))
         .header(REFERER, HeaderValue::from_static("https://app.myffme.fr/"))
@@ -291,16 +292,41 @@ pub(crate) async fn search(name: Option<&str>, dob: Option<u32>) -> Option<Vec<L
         .send()
         .await
         .ok()?
+        .json::<LicenseeInfo>()
+        .await
+        .ok()?;
+    let url = Url::parse("https://back-prod.core.myffme.fr/v1/graphql").unwrap();
+    client()
+        .get(url.as_str())
+        .header(ORIGIN, HeaderValue::from_static("https://www.myffme.fr"))
+        .header(REFERER, HeaderValue::from_static("https://www.myffme.fr/"))
+        .header(X_HASURA_ROLE, ADMIN)
+        .header(
+            AUTHORIZATION,
+            MYFFME_AUTHORIZATION
+                .get_ref()
+                .map(|it| it.bearer_token.clone())?,
+        )
+        .json(&json!({
+            "operationName": "getUtilisateur",
+            "query": GRAPHQL_GET_USER_BY_LICENSE_NUMBER,
+            "variables": {
+                "license_number": &licensee.license_number,
+            }
+        }))
+        .send()
+        .await
+        .ok()?
         .json()
         .await
         .ok()
 }
 
 pub(crate) async fn list_current_licensees() -> Option<Vec<Licensee>> {
-    list_from_ids(list_ids().await?).await
+    list_from_ids(list_statuses().await?).await
 }
 
-async fn list_ids() -> Option<impl Iterator<Item = String>> {
+async fn list_statuses() -> Option<BTreeMap<String, String>> {
     #[derive(Deserialize)]
     struct User {
         id: String,
@@ -308,6 +334,7 @@ async fn list_ids() -> Option<impl Iterator<Item = String>> {
     #[derive(Deserialize)]
     struct License {
         user: User,
+        status: String,
     }
     let mut url = Url::parse("https://app.myffme.fr/api/users/licensee/search").unwrap();
     let mut query = url.query_pairs_mut();
@@ -332,13 +359,17 @@ async fn list_ids() -> Option<impl Iterator<Item = String>> {
         .ok()?
         .json::<Vec<License>>()
         .await
-        .map(|it| it.into_iter().map(|it| it.user.id))
+        .map(|it| {
+            it.into_iter()
+                .map(|it| (it.user.id, it.status))
+                .collect::<BTreeMap<_, _>>()
+        })
         .ok()
 }
 
-async fn list_from_ids(ids: impl Iterator<Item = String>) -> Option<Vec<Licensee>> {
-    let mut url = Url::parse("https://back-prod.core.myffme.fr/v1/graphql").unwrap();
-    client()
+async fn list_from_ids(mut statuses: BTreeMap<String, String>) -> Option<Vec<Licensee>> {
+    let url = Url::parse("https://back-prod.core.myffme.fr/v1/graphql").unwrap();
+    let licensees = client()
         .get(url.as_str())
         .header(ORIGIN, HeaderValue::from_static("https://www.myffme.fr"))
         .header(REFERER, HeaderValue::from_static("https://www.myffme.fr/"))
@@ -353,15 +384,24 @@ async fn list_from_ids(ids: impl Iterator<Item = String>) -> Option<Vec<Licensee
             "operationName": "getUtilisateurs",
             "query": GRAPHQL_GET_USERS_BY_IDS,
             "variables": {
-                "ids": ids.collect::<Vec<_>>(),
+                "ids": statuses.keys().collect::<Vec<_>>(),
             }
         }))
         .send()
         .await
         .ok()?
-        .json()
+        .json::<Vec<Licensee>>()
         .await
-        .ok()
+        .ok()?;
+    Some(
+        licensees
+            .into_iter()
+            .map(|mut it| {
+                it.licence_type = statuses.remove(&it.id);
+                it
+            })
+            .collect(),
+    )
 }
 
 #[derive(Deserialize)]
@@ -390,6 +430,7 @@ pub struct Licensee {
     pub(crate) birth_place_insee: Option<String>,
     pub(crate) active_license: bool,
     pub(crate) address: Option<Address>,
+    pub(crate) licence_type: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -451,6 +492,29 @@ const GRAPHQL_GET_USER_BY_LICENSE_NUMBER: &str = "\
     query getUserByLicenseNumber($license_number: String!) {
         UTI_Utilisateurs(where: {license_number: {_eq: $license_number}}) {
             id
+            gender: CT_EST_Civilite,
+            first_name: CT_Prenom
+            last_name: CT_Nom
+            birth_name: CT_NomDeNaissance
+            dob: DN_DateNaissance
+            email: CT_Email
+            alt_email: CT_Email2
+            phone_number: CT_TelephoneMobile
+            alt_phone_number: CT_TelephoneFixe
+            license_number: LicenceNumero
+            username: LOG_Login
+            birth_place: DN_CommuneNaissance
+            birth_place_insee: DN_CommuneNaissance_CodeInsee
+            active_license: EST_Licencie
+            address: ADR_Adresse {
+              line1: Adresse1
+              line2: Adresse2
+              insee: CodeInsee
+              zip_code: CodePostal
+              city: Ville
+              __typename
+            }
+            __typename
         }
     }\
 ";
