@@ -231,6 +231,14 @@ where
         .map_err(serde::de::Error::custom)
 }
 
+fn deserialize_license_number<'de, D>(deserializer: D) -> Result<u32, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s: &str = serde::Deserialize::deserialize(deserializer)?;
+    s.parse().map_err(serde::de::Error::custom)
+}
+
 fn current_season() -> u16 {
     let year_2020_utc_start_timestamp = 1577836800_u32;
     let elapsed = SystemTime::now()
@@ -253,19 +261,28 @@ fn current_season() -> u16 {
     }
 }
 
-pub(crate) async fn search(name: Option<&str>, dob: Option<u32>) -> Option<Vec<Licensee>> {
+pub(crate) struct LicenseeInfo {
+    pub(crate) licensee: Licensee,
+    pub(crate) latest_license_season: Option<u16>,
+    pub(crate) latest_structure_name: Option<String>,
+}
+
+pub(crate) async fn search(name: Option<&str>, dob: Option<u32>) -> Option<Vec<LicenseeInfo>> {
     #[derive(Deserialize)]
-    pub(crate) struct LicenseeInfo {
+    pub(crate) struct SearchResult {
         #[serde(rename = "fullname")]
         pub(crate) name: String,
         #[serde(rename = "birthdate", deserialize_with = "deserialize_date")]
         pub(crate) dob: u32,
-        #[serde(rename = "licenceNumber")]
-        pub(crate) license_number: String,
+        #[serde(
+            rename = "licenceNumber",
+            deserialize_with = "deserialize_license_number"
+        )]
+        pub(crate) license_number: u32,
         #[serde(rename = "season")]
         pub(crate) latest_license_season: Option<u16>,
         #[serde(rename = "structure")]
-        pub(crate) latest_structure_name: Option<String>, // TODO
+        pub(crate) latest_structure_name: Option<String>,
     }
     let mut url = Url::parse("https://api.core.myffme.fr/api/users/licensee/search").unwrap();
     let mut query = url.query_pairs_mut();
@@ -283,7 +300,8 @@ pub(crate) async fn search(name: Option<&str>, dob: Option<u32>) -> Option<Vec<L
     }
     drop(query);
     debug!("GET {}", url.as_str());
-    let response = client()
+    let client = client();
+    let request = client
         .get(url.as_str())
         .header(ORIGIN, HeaderValue::from_static("https://app.myffme.fr"))
         .header(REFERER, HeaderValue::from_static("https://app.myffme.fr/"))
@@ -293,11 +311,11 @@ pub(crate) async fn search(name: Option<&str>, dob: Option<u32>) -> Option<Vec<L
                 .get_ref()
                 .map(|it| it.bearer_token.clone())?,
         )
-        .send()
-        .await
+        .build()
         .ok()?;
+    let response = client.execute(request).await.ok()?;
     #[cfg(test)]
-    let licensees = {
+    let search_results = {
         let text = response.text().await.ok()?;
         let mut file_name = ".search".to_string();
         if let Some(name) = name {
@@ -319,17 +337,29 @@ pub(crate) async fn search(name: Option<&str>, dob: Option<u32>) -> Option<Vec<L
             .write_all(text.as_bytes())
             .await
             .unwrap();
-        serde_json::from_str::<Vec<LicenseeInfo>>(&text).ok()?
+        serde_json::from_str::<Vec<SearchResult>>(&text).ok()?
     };
     #[cfg(not(test))]
-    let licensees = response.json::<Vec<LicenseeInfo>>().await.ok()?;
-    let licensees = licensees
+    let search_results = response.json::<Vec<SearchResult>>().await.ok()?;
+    let mut infos = search_results
         .into_iter()
-        .map(|it| (it.license_number, it.latest_license_season))
+        .map(|it| {
+            (
+                it.license_number,
+                (it.latest_license_season, it.latest_structure_name),
+            )
+        })
         .collect::<BTreeMap<_, _>>();
     let url = Url::parse("https://back-prod.core.myffme.fr/v1/graphql").unwrap();
-    let response = client()
-        .get(url.as_str())
+    let body = json!({
+        "operationName": "getUsersByLicenseNumbers",
+        "query": GRAPHQL_GET_USERS_BY_LICENSE_NUMBER,
+        "variables": {
+            "license_numbers": &infos.keys().collect::<Vec<_>>(),
+        }
+    });
+    let request = client
+        .post(url.as_str())
         .header(ORIGIN, HeaderValue::from_static("https://www.myffme.fr"))
         .header(REFERER, HeaderValue::from_static("https://www.myffme.fr/"))
         .header(X_HASURA_ROLE, ADMIN)
@@ -339,18 +369,21 @@ pub(crate) async fn search(name: Option<&str>, dob: Option<u32>) -> Option<Vec<L
                 .get_ref()
                 .map(|it| it.bearer_token.clone())?,
         )
-        .json(&json!({
-            "operationName": "getUtilisateur",
-            "query": GRAPHQL_GET_USERS_BY_LICENSE_NUMBER,
-            "variables": {
-                "license_numbers": &licensees.keys().collect::<Vec<_>>(),
-            }
-        }))
-        .send()
-        .await
+        .json(&body)
+        .build()
         .ok()?;
+    let response = client.execute(request).await.ok()?;
+    #[derive(Deserialize)]
+    struct UserList {
+        #[serde(rename = "UTI_Utilisateurs")]
+        list: Vec<Licensee>,
+    }
+    #[derive(Deserialize)]
+    struct GraphqlResponse {
+        data: UserList,
+    }
     #[cfg(test)]
-    {
+    let licensees = {
         let text = response.text().await.ok()?;
         let mut file_name = ".users".to_string();
         if let Some(name) = name {
@@ -371,10 +404,32 @@ pub(crate) async fn search(name: Option<&str>, dob: Option<u32>) -> Option<Vec<L
             .write_all(text.as_bytes())
             .await
             .unwrap();
-        serde_json::from_str(&text).ok()
-    }
+        serde_json::from_str::<GraphqlResponse>(&text)
+            .ok()?
+            .data
+            .list
+    };
     #[cfg(not(test))]
-    response.json().await.ok()
+    let licensees = response.json::<GraphqlResponse>().await.ok()?.data.list;
+    Some(
+        licensees
+            .into_iter()
+            .map(|licensee| {
+                let info = infos.remove(&licensee.license_number);
+                LicenseeInfo {
+                    licensee,
+                    latest_license_season: match info {
+                        Some((Some(latest_season), _)) => Some(latest_season),
+                        _ => None,
+                    },
+                    latest_structure_name: match info {
+                        Some((_, Some(structure))) => Some(structure),
+                        _ => None,
+                    },
+                }
+            })
+            .collect(),
+    )
 }
 
 pub(crate) async fn list_current_licensees() -> Option<Vec<Licensee>> {
@@ -455,7 +510,7 @@ async fn list_from_ids(mut metadata: BTreeMap<String, UserMetadata>) -> Option<V
                 .map(|it| it.bearer_token.clone())?,
         )
         .json(&json!({
-            "operationName": "getUtilisateurs",
+            "operationName": "getUsersByIds",
             "query": GRAPHQL_GET_USERS_BY_IDS,
             "variables": {
                 "ids": metadata.keys().collect::<Vec<_>>(),
@@ -548,11 +603,12 @@ pub struct Licensee {
     pub(crate) alt_email: Option<String>,
     pub(crate) phone_number: String,
     pub(crate) alt_phone_number: Option<String>,
-    pub(crate) license_number: String,
+    pub(crate) license_number: u32,
     pub(crate) username: String,
     pub(crate) birth_place: String,
     pub(crate) birth_place_insee: Option<String>,
     pub(crate) active_license: bool,
+    #[serde(default, deserialize_with = "deserialize_address")]
     pub(crate) address: Option<Address>,
     #[serde(default, deserialize_with = "deserialize_license_type")]
     pub(crate) license_type: Option<LicenseType>,
@@ -571,6 +627,17 @@ pub struct Address {
     pub(crate) city: Option<String>,
 }
 
+fn deserialize_address<'de, D>(deserializer: D) -> Result<Option<Address>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let result = <Vec<Address>>::deserialize(deserializer);
+    match result {
+        Ok(it) => Ok(it.into_iter().next()),
+        Err(_err) => Ok(None),
+    }
+}
+
 fn deserialize_gender<'de, D>(deserializer: D) -> Result<Gender, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -587,7 +654,7 @@ fn deserialize_license_type<'de, D>(deserializer: D) -> Result<Option<LicenseTyp
 where
     D: serde::Deserializer<'de>,
 {
-    let result: Result<&str, _> = <&str>::deserialize(deserializer);
+    let result = <&str>::deserialize(deserializer);
     match result {
         Ok(str) => Ok(Some(str.try_into().map_err(|msg| Error::custom(msg))?)),
         Err(_err) => Ok(None),
@@ -600,7 +667,7 @@ fn deserialize_medical_certificate_status<'de, D>(
 where
     D: serde::Deserializer<'de>,
 {
-    let result: Result<&str, _> = <&str>::deserialize(deserializer);
+    let result = <&str>::deserialize(deserializer);
     match result {
         Ok(str) => Ok(Some(str.try_into().map_err(|msg| Error::custom(msg))?)),
         Err(_err) => Ok(None),
@@ -642,7 +709,7 @@ const GRAPHQL_GET_USERS_BY_IDS: &str = "\
 ";
 
 const GRAPHQL_GET_USERS_BY_LICENSE_NUMBER: &str = "\
-    query getUsersByLicenseNumbers($license_numbers: [String!]!) {
+    query getUsersByLicenseNumbers($license_numbers: [bigint!]!) {
         UTI_Utilisateurs(where: {LicenceNumero: {_in: $license_numbers}}) {
             id
             gender: CT_EST_Civilite,
