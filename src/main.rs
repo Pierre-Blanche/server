@@ -1,3 +1,5 @@
+mod address;
+mod chrome;
 mod myffme;
 
 use crate::myffme::ffme_auth_update_loop;

@@ -1,3 +1,4 @@
+use crate::chrome::{ChromeVersion, CHROME_VERSION};
 use hyper::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, ORIGIN, REFERER};
 use hyper::http::{HeaderName, HeaderValue};
 use pinboard::Pinboard;
@@ -70,11 +71,6 @@ struct Authorization {
     timestamp: u32,
 }
 
-struct ChromeVersion {
-    chrome_version: u16,
-    timestamp: u32,
-}
-
 #[derive(Deserialize)]
 struct Token {
     token: String,
@@ -98,7 +94,6 @@ static PASSWORD: LazyLock<&'static str> =
 
 static MYFFME_AUTHORIZATION: LazyLock<Pinboard<Authorization>> =
     LazyLock::new(|| Pinboard::new_empty());
-static CHROME_VERSION: LazyLock<Pinboard<ChromeVersion>> = LazyLock::new(|| Pinboard::new_empty());
 
 fn client() -> Client {
     let chrome_version = CHROME_VERSION
@@ -270,13 +265,20 @@ fn current_season(timestamp: Option<u32>) -> u16 {
     }
 }
 
+#[derive(Deserialize, Serialize)]
 pub(crate) struct LicenseeInfo {
     pub(crate) licensee: Licensee,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) latest_license_season: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) latest_structure_name: Option<String>,
 }
 
-pub(crate) async fn search(name: Option<&str>, dob: Option<u32>) -> Option<Vec<LicenseeInfo>> {
+pub(crate) async fn search(
+    name: Option<&str>,
+    dob: Option<u32>,
+    license_number: Option<u32>,
+) -> Option<Vec<LicenseeInfo>> {
     #[derive(Deserialize)]
     pub(crate) struct SearchResult {
         #[serde(rename = "fullname")]
@@ -306,6 +308,9 @@ pub(crate) async fn search(name: Option<&str>, dob: Option<u32>) -> Option<Vec<L
             "birthdate",
             &format!("{}-{}-{}", &s[0..4], &s[4..6], &s[6..8]),
         );
+    }
+    if let Some(license_number) = license_number {
+        query.append_pair("licenceNumber", &format!("{}", license_number));
     }
     drop(query);
     debug!("GET {}", url.as_str());
@@ -683,12 +688,14 @@ async fn licensees_from_ids(
 }
 
 #[derive(Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Gender {
     Female,
     Male,
 }
 
 #[derive(Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum LicenseType {
     Adult,
     Child,
@@ -713,11 +720,12 @@ impl TryFrom<&str> for LicenseType {
 }
 
 #[derive(Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum MedicalCertificateStatus {
     Recreational,
     Competition,
     HealthQuestionnaire,
-    WaitingDocument,
+    WaitingForDocument,
 }
 
 impl TryFrom<&str> for MedicalCertificateStatus {
@@ -727,7 +735,7 @@ impl TryFrom<&str> for MedicalCertificateStatus {
         match value {
             "loisir" => Ok(MedicalCertificateStatus::Recreational),
             "competition" => Ok(MedicalCertificateStatus::Competition),
-            "waiting_document" => Ok(MedicalCertificateStatus::WaitingDocument),
+            "waiting_document" => Ok(MedicalCertificateStatus::WaitingForDocument),
             "qs" => Ok(MedicalCertificateStatus::HealthQuestionnaire),
             _ => Err("unknown medical certificate status"),
         }
@@ -741,36 +749,60 @@ pub struct Licensee {
     pub(crate) gender: Gender,
     pub(crate) first_name: String,
     pub(crate) last_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) birth_name: Option<String>,
     #[serde(deserialize_with = "deserialize_date")]
     pub(crate) dob: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) email: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) alt_email: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) phone_number: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) alt_phone_number: Option<String>,
     pub(crate) license_number: u32,
     pub(crate) username: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) birth_place: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) birth_place_insee: Option<String>,
     pub(crate) active_license: bool,
-    #[serde(default, deserialize_with = "deserialize_address")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_address",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub(crate) address: Option<Address>,
-    #[serde(default, deserialize_with = "deserialize_license_type")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_license_type",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub(crate) license_type: Option<LicenseType>,
-    #[serde(default, deserialize_with = "deserialize_medical_certificate_status")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_medical_certificate_status",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub(crate) medical_certificate_status: Option<MedicalCertificateStatus>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) last_license_season: Option<u16>,
 }
 
 #[derive(Deserialize, Serialize)]
 pub struct Address {
     #[serde(skip_serializing)]
-    user_id: Option<String>,
+    pub(crate) user_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) line1: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) line2: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) insee: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) zip_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) city: Option<String>,
 }
 
@@ -851,14 +883,14 @@ const GRAPHQL_GET_ADDRESSES_BY_USER_IDS: &str = "\
     query getAddressesByUserIds($ids: [uuid!]!) {
         ADR_Adresse(
             where: {ID_Utilisateur: {_in: $ids}},
-            order_by: { Z_DateModification: desc },
-            limit: 1
+            order_by: [{ ID_Utilisateur: asc }, { Z_DateModification: desc }],
+            distinct_on: [ID_Utilisateur]
         ) {
             user_id: ID_Utilisateur
             line1: Adresse1
             line2: Adresse2
             insee: CodeInsee
-            zip_code: CodePostal
+            zip_code: CodePostal,
             city: Ville
             __typename
         }
@@ -890,7 +922,7 @@ const GRAPHQL_GET_USERS_BY_LICENSE_NUMBER: &str = "\
 
 #[cfg(test)]
 mod tests {
-    use crate::myffme::{current_licensees, current_season, search, update_bearer_token};
+    use super::*;
     use chrono::{Datelike, NaiveDate, NaiveDateTime, TimeZone, Utc};
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -932,17 +964,33 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_search() {
+    async fn test_search_by_license_number() {
         assert!(update_bearer_token(0).await);
         let t0 = SystemTime::now();
-        let results = search(Some("DAVID"), Some(19770522)).await.unwrap();
+        let results = search(None, None, Some(154316)).await.unwrap();
         let elapsed = t0.elapsed().unwrap();
         println!("{elapsed:?}");
-        assert!(results.len() > 0);
+        assert!(!results.is_empty());
+        println!("{}", results.len());
+        let result = results.first().unwrap();
+        assert_eq!(19750826, result.licensee.dob);
+        assert_eq!("GRAS", result.licensee.last_name);
+        println!("{}", serde_json::to_string(result).unwrap())
+    }
+
+    #[tokio::test]
+    async fn test_search_by_name_and_dob() {
+        assert!(update_bearer_token(0).await);
+        let t0 = SystemTime::now();
+        let results = search(Some("DAVID"), Some(19770522), None).await.unwrap();
+        let elapsed = t0.elapsed().unwrap();
+        println!("{elapsed:?}");
+        assert!(!results.is_empty());
         println!("{}", results.len());
         let result = results.first().unwrap();
         assert_eq!(19770522, result.licensee.dob);
         assert_eq!("DAVID", result.licensee.last_name);
+        println!("{}", serde_json::to_string(result).unwrap())
     }
 
     #[tokio::test]
@@ -952,7 +1000,8 @@ mod tests {
         let results = current_licensees().await.unwrap();
         let elapsed = t0.elapsed().unwrap();
         println!("{elapsed:?}");
-        assert!(results.len() > 0);
+        assert!(!results.is_empty());
         println!("{}", results.len());
+        println!("{}", serde_json::to_string(&results).unwrap())
     }
 }
