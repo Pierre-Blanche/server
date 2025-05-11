@@ -6,7 +6,7 @@ use reqwest::redirect::Policy;
 use reqwest::tls::Version;
 use reqwest::{Client, Url};
 use serde::de::Error;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
@@ -134,7 +134,8 @@ fn client() -> Client {
         .deflate(true)
         .gzip(true)
         .brotli(true)
-        .timeout(std::time::Duration::from_secs(5))
+        .connect_timeout(Duration::from_secs(3))
+        .read_timeout(Duration::from_secs(15))
         .build()
         .unwrap()
 }
@@ -189,8 +190,12 @@ async fn update_bearer_token(timestamp: u32) -> bool {
     {
         Ok(response) => match response.json::<Token>().await {
             Ok(token) => {
+                let bearer_token =
+                    HeaderValue::try_from(format!("Bearer {}", token.token)).unwrap();
+                #[cfg(test)]
+                println!("bearer token: {}", bearer_token.to_str().unwrap());
                 MYFFME_AUTHORIZATION.set(Authorization {
-                    bearer_token: HeaderValue::try_from(format!("Bearer {}", token.token)).unwrap(),
+                    bearer_token,
                     timestamp,
                 });
                 true
@@ -239,16 +244,20 @@ where
     s.parse().map_err(serde::de::Error::custom)
 }
 
-fn current_season() -> u16 {
+const APPROXIMATE_NUMBER_OF_SECS_IN_YEAR: u32 = 31_557_600;
+
+fn current_season(timestamp: Option<u32>) -> u16 {
     let year_2020_utc_start_timestamp = 1577836800_u32;
-    let elapsed = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as u32
-        - year_2020_utc_start_timestamp;
+    let elapsed = timestamp.unwrap_or_else(|| {
+        SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as u32
+    }) - year_2020_utc_start_timestamp;
     // can be off by 1 but won't change the result
-    let years = (elapsed as f32 / 365.25_f32).round() as u16;
-    let current_year_elapsed_seconds = elapsed - (years as f32 * 365.25_f32).round() as u32;
+    let years = elapsed / APPROXIMATE_NUMBER_OF_SECS_IN_YEAR;
+    let current_year_elapsed_seconds = elapsed - years * APPROXIMATE_NUMBER_OF_SECS_IN_YEAR;
+    let years = years as u16;
     let seconds_between_jan_and_august = if years % 4 == 0 {
         18_316_800
     } else {
@@ -394,6 +403,7 @@ pub(crate) async fn search(name: Option<&str>, dob: Option<u32>) -> Option<Vec<L
             file_name.push('_');
             file_name.push_str(dob.to_string().as_str());
         }
+        file_name.push_str(".json");
         tokio::fs::OpenOptions::new()
             .write(true)
             .truncate(true)
@@ -433,7 +443,8 @@ pub(crate) async fn search(name: Option<&str>, dob: Option<u32>) -> Option<Vec<L
 }
 
 pub(crate) async fn list_current_licensees() -> Option<Vec<Licensee>> {
-    list_from_ids(list_user_metadata().await?).await
+    let season = current_season(None);
+    list_from_ids(list_user_metadata(season).await?, season).await
 }
 
 struct UserMetadata {
@@ -441,7 +452,7 @@ struct UserMetadata {
     medical_certificate_status: Option<MedicalCertificateStatus>,
 }
 
-async fn list_user_metadata() -> Option<BTreeMap<String, UserMetadata>> {
+async fn list_user_metadata(season: u16) -> Option<BTreeMap<String, UserMetadata>> {
     #[derive(Deserialize)]
     struct User {
         id: String,
@@ -456,15 +467,16 @@ async fn list_user_metadata() -> Option<BTreeMap<String, UserMetadata>> {
         product: Product,
         status: String,
     }
-    let mut url = Url::parse("https://app.myffme.fr/api/users/licensee/search").unwrap();
+    let mut url = Url::parse("https://api.core.myffme.fr/api/licences").unwrap();
     let mut query = url.query_pairs_mut();
     query.append_pair("page", "1");
     query.append_pair("itemsPerPage", "1000");
     query.append_pair("structure", "10");
-    query.append_pair("season", current_season().to_string().as_str());
+    query.append_pair("season", season.to_string().as_str());
     drop(query);
     debug!("GET {}", url.as_str());
-    client()
+    let client = client();
+    let request = client
         .get(url.as_str())
         .header(ORIGIN, HeaderValue::from_static("https://app.myffme.fr"))
         .header(REFERER, HeaderValue::from_static("https://app.myffme.fr/"))
@@ -474,32 +486,53 @@ async fn list_user_metadata() -> Option<BTreeMap<String, UserMetadata>> {
                 .get_ref()
                 .map(|it| it.bearer_token.clone())?,
         )
-        .send()
-        .await
-        .ok()?
-        .json::<Vec<License>>()
-        .await
-        .map(|it| {
-            it.into_iter()
-                .map(|it| {
-                    (
-                        it.user.id,
-                        UserMetadata {
-                            medical_certificate_status: it.status.as_str().try_into().ok(),
-                            license_type: it.product.slug.as_str().try_into().ok(),
-                        },
-                    )
-                })
-                .collect::<BTreeMap<_, _>>()
-        })
-        .ok()
+        .build()
+        .ok()?;
+    let response = client.execute(request).await.ok()?;
+    #[cfg(test)]
+    let licenses = {
+        println!("GET {}", url.as_str());
+        println!("{}", response.status());
+        let text = response.text().await.ok()?;
+        let file_name = format!(".users_metadata_{season}.json");
+        tokio::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .create(true)
+            .open(&file_name)
+            .await
+            .ok()?
+            .write_all(text.as_bytes())
+            .await
+            .unwrap();
+        serde_json::from_str::<Vec<License>>(&text).ok()?
+    };
+    #[cfg(not(test))]
+    let licenses = response.json::<Vec<License>>().await.ok()?;
+    Some(
+        licenses
+            .into_iter()
+            .map(|it| {
+                (
+                    it.user.id,
+                    UserMetadata {
+                        medical_certificate_status: it.status.as_str().try_into().ok(),
+                        license_type: it.product.slug.as_str().try_into().ok(),
+                    },
+                )
+            })
+            .collect::<BTreeMap<_, _>>(),
+    )
 }
 
-async fn list_from_ids(mut metadata: BTreeMap<String, UserMetadata>) -> Option<Vec<Licensee>> {
-    let current_season = current_season();
+async fn list_from_ids(
+    mut metadata: BTreeMap<String, UserMetadata>,
+    season: u16,
+) -> Option<Vec<Licensee>> {
     let url = Url::parse("https://back-prod.core.myffme.fr/v1/graphql").unwrap();
-    let licensees = client()
-        .get(url.as_str())
+    let client = client();
+    let request = client
+        .post(url.as_str())
         .header(ORIGIN, HeaderValue::from_static("https://www.myffme.fr"))
         .header(REFERER, HeaderValue::from_static("https://www.myffme.fr/"))
         .header(X_HASURA_ROLE, ADMIN)
@@ -516,12 +549,41 @@ async fn list_from_ids(mut metadata: BTreeMap<String, UserMetadata>) -> Option<V
                 "ids": metadata.keys().collect::<Vec<_>>(),
             }
         }))
-        .send()
-        .await
-        .ok()?
-        .json::<Vec<Licensee>>()
-        .await
+        .build()
         .ok()?;
+    let response = client.execute(request).await.ok()?;
+    #[derive(Deserialize)]
+    struct UserList {
+        #[serde(rename = "UTI_Utilisateurs")]
+        list: Vec<Licensee>,
+    }
+    #[derive(Deserialize)]
+    struct GraphqlResponse {
+        data: UserList,
+    }
+    #[cfg(test)]
+    let licensees = {
+        println!("POST {}", url.as_str());
+        println!("{}", response.status());
+        let text = response.text().await.ok()?;
+        let file_name = format!(".users_{season}.json");
+        tokio::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .create(true)
+            .open(&file_name)
+            .await
+            .ok()?
+            .write_all(text.as_bytes())
+            .await
+            .unwrap();
+        serde_json::from_str::<GraphqlResponse>(&text)
+            .ok()?
+            .data
+            .list
+    };
+    #[cfg(not(test))]
+    let licensees = response.json::<GraphqlResponse>().await.ok()?.data.list;
     Some(
         licensees
             .into_iter()
@@ -530,20 +592,20 @@ async fn list_from_ids(mut metadata: BTreeMap<String, UserMetadata>) -> Option<V
                     it.license_type = meta.license_type;
                     it.medical_certificate_status = meta.medical_certificate_status;
                 }
-                it.last_license_season = Some(current_season);
+                it.last_license_season = Some(season);
                 it
             })
             .collect(),
     )
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 pub enum Gender {
     Female,
     Male,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 pub enum LicenseType {
     Adult,
     Child,
@@ -567,7 +629,7 @@ impl TryFrom<&str> for LicenseType {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 pub enum MedicalCertificateStatus {
     Recreational,
     Competition,
@@ -589,7 +651,7 @@ impl TryFrom<&str> for MedicalCertificateStatus {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 pub struct Licensee {
     pub(crate) id: String,
     #[serde(deserialize_with = "deserialize_gender")]
@@ -601,11 +663,11 @@ pub struct Licensee {
     pub(crate) dob: u32,
     pub(crate) email: Option<String>,
     pub(crate) alt_email: Option<String>,
-    pub(crate) phone_number: String,
+    pub(crate) phone_number: Option<String>,
     pub(crate) alt_phone_number: Option<String>,
     pub(crate) license_number: u32,
     pub(crate) username: String,
-    pub(crate) birth_place: String,
+    pub(crate) birth_place: Option<String>,
     pub(crate) birth_place_insee: Option<String>,
     pub(crate) active_license: bool,
     #[serde(default, deserialize_with = "deserialize_address")]
@@ -618,7 +680,7 @@ pub struct Licensee {
     pub(crate) last_license_season: Option<u16>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 pub struct Address {
     pub(crate) line1: Option<String>,
     pub(crate) line2: Option<String>,
@@ -741,11 +803,69 @@ const GRAPHQL_GET_USERS_BY_LICENSE_NUMBER: &str = "\
 
 #[cfg(test)]
 mod tests {
-    use crate::myffme::{search, update_bearer_token};
+    use crate::myffme::{current_season, list_current_licensees, search, update_bearer_token};
+    use chrono::{Datelike, NaiveDate, NaiveDateTime, TimeZone, Utc};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn test_current_season() {
+        let date = Utc.from_utc_datetime(&NaiveDateTime::from(
+            NaiveDate::from_ymd_opt(2021, 03, 12).unwrap(),
+        ));
+        let season = current_season(Some(date.timestamp() as u32));
+        assert_eq!(2021, season);
+        let date = Utc.from_utc_datetime(&NaiveDateTime::from(
+            NaiveDate::from_ymd_opt(2021, 09, 01).unwrap(),
+        ));
+        let season = current_season(Some(date.timestamp() as u32));
+        assert_eq!(2022, season);
+        let date = Utc
+            .timestamp_millis_opt(
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis() as i64,
+            )
+            .unwrap();
+        let season = current_season(None);
+        assert_eq!(season, current_season(Some(date.timestamp() as u32)));
+        let mut year = date.year() as u16;
+        let month = date.month() as u16;
+        let day = date.day() as u16;
+        if month == 7 && day > 29 {
+            return;
+        }
+        if month == 8 && day < 3 {
+            return;
+        }
+        if month == 8 {
+            year += 1;
+        }
+        assert_eq!(year, season);
+    }
 
     #[tokio::test]
-    async fn save_list() {
+    async fn test_search() {
         assert!(update_bearer_token(0).await);
-        search(Some("DAVID"), Some(19770522)).await.unwrap();
+        let t0 = SystemTime::now();
+        let results = search(Some("DAVID"), Some(19770522)).await.unwrap();
+        let elapsed = t0.elapsed().unwrap();
+        println!("{elapsed:?}");
+        assert!(results.len() > 0);
+        println!("{}", results.len());
+        let result = results.first().unwrap();
+        assert_eq!(19770522, result.licensee.dob);
+        assert_eq!("DAVID", result.licensee.last_name);
+    }
+
+    #[tokio::test]
+    async fn test_list() {
+        assert!(update_bearer_token(0).await);
+        let t0 = SystemTime::now();
+        let results = list_current_licensees().await.unwrap();
+        let elapsed = t0.elapsed().unwrap();
+        println!("{elapsed:?}");
+        assert!(results.len() > 0);
+        println!("{}", results.len());
     }
 }
