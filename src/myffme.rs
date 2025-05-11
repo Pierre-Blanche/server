@@ -325,6 +325,8 @@ pub(crate) async fn search(name: Option<&str>, dob: Option<u32>) -> Option<Vec<L
     let response = client.execute(request).await.ok()?;
     #[cfg(test)]
     let search_results = {
+        println!("GET {}", url.as_str());
+        println!("{}", response.status());
         let text = response.text().await.ok()?;
         let mut file_name = ".search".to_string();
         if let Some(name) = name {
@@ -393,6 +395,8 @@ pub(crate) async fn search(name: Option<&str>, dob: Option<u32>) -> Option<Vec<L
     }
     #[cfg(test)]
     let licensees = {
+        println!("POST {}", url.as_str());
+        println!("{}", response.status());
         let text = response.text().await.ok()?;
         let mut file_name = ".users".to_string();
         if let Some(name) = name {
@@ -421,10 +425,19 @@ pub(crate) async fn search(name: Option<&str>, dob: Option<u32>) -> Option<Vec<L
     };
     #[cfg(not(test))]
     let licensees = response.json::<GraphqlResponse>().await.ok()?.data.list;
+
+    let ids = licensees
+        .iter()
+        .map(|it| it.id.as_str())
+        .collect::<Vec<_>>();
+
+    let mut addresses = user_addresses(&ids).await?;
+
     Some(
         licensees
             .into_iter()
-            .map(|licensee| {
+            .map(|mut licensee| {
+                licensee.address = addresses.remove(licensee.id.as_str());
                 let info = infos.remove(&licensee.license_number);
                 LicenseeInfo {
                     licensee,
@@ -442,9 +455,76 @@ pub(crate) async fn search(name: Option<&str>, dob: Option<u32>) -> Option<Vec<L
     )
 }
 
-pub(crate) async fn list_current_licensees() -> Option<Vec<Licensee>> {
+pub(crate) async fn current_licensees() -> Option<Vec<Licensee>> {
     let season = current_season(None);
-    list_from_ids(list_user_metadata(season).await?, season).await
+    licensees_from_ids(licensees_metadata(season).await?, season).await
+}
+
+async fn user_addresses(ids: &[&str]) -> Option<BTreeMap<String, Address>> {
+    let url = Url::parse("https://back-prod.core.myffme.fr/v1/graphql").unwrap();
+    let client = client();
+    let request = client
+        .post(url.as_str())
+        .header(ORIGIN, HeaderValue::from_static("https://www.myffme.fr"))
+        .header(REFERER, HeaderValue::from_static("https://www.myffme.fr/"))
+        .header(X_HASURA_ROLE, ADMIN)
+        .header(
+            AUTHORIZATION,
+            MYFFME_AUTHORIZATION
+                .get_ref()
+                .map(|it| it.bearer_token.clone())?,
+        )
+        .json(&json!({
+            "operationName": "getAddressesByUserIds",
+            "query": GRAPHQL_GET_ADDRESSES_BY_USER_IDS,
+            "variables": {
+                "ids": ids,
+            }
+        }))
+        .build()
+        .ok()?;
+    let response = client.execute(request).await.ok()?;
+    #[derive(Deserialize)]
+    struct AddressList {
+        #[serde(rename = "ADR_Adresse")]
+        list: Vec<Address>,
+    }
+    #[derive(Deserialize)]
+    struct GraphqlResponse {
+        data: AddressList,
+    }
+    #[cfg(test)]
+    let addresses = {
+        println!("POST {}", url.as_str());
+        println!("{}", response.status());
+        let text = response.text().await.ok()?;
+        let file_name = format!(".addresses.json");
+        tokio::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .create(true)
+            .open(&file_name)
+            .await
+            .ok()?
+            .write_all(text.as_bytes())
+            .await
+            .unwrap();
+        serde_json::from_str::<GraphqlResponse>(&text)
+            .ok()?
+            .data
+            .list
+    };
+    #[cfg(not(test))]
+    let addresses = response.json::<GraphqlResponse>().await.ok()?.data.list;
+    Some(
+        addresses
+            .into_iter()
+            .map(|mut address| {
+                let id = address.user_id.take().unwrap();
+                (id, address)
+            })
+            .collect(),
+    )
 }
 
 struct UserMetadata {
@@ -452,7 +532,7 @@ struct UserMetadata {
     medical_certificate_status: Option<MedicalCertificateStatus>,
 }
 
-async fn list_user_metadata(season: u16) -> Option<BTreeMap<String, UserMetadata>> {
+async fn licensees_metadata(season: u16) -> Option<BTreeMap<String, UserMetadata>> {
     #[derive(Deserialize)]
     struct User {
         id: String,
@@ -525,10 +605,12 @@ async fn list_user_metadata(season: u16) -> Option<BTreeMap<String, UserMetadata
     )
 }
 
-async fn list_from_ids(
+async fn licensees_from_ids(
     mut metadata: BTreeMap<String, UserMetadata>,
     season: u16,
 ) -> Option<Vec<Licensee>> {
+    let ids = metadata.keys().map(|it| it.as_str()).collect::<Vec<_>>();
+    let mut addresses = user_addresses(&ids).await?;
     let url = Url::parse("https://back-prod.core.myffme.fr/v1/graphql").unwrap();
     let client = client();
     let request = client
@@ -546,7 +628,7 @@ async fn list_from_ids(
             "operationName": "getUsersByIds",
             "query": GRAPHQL_GET_USERS_BY_IDS,
             "variables": {
-                "ids": metadata.keys().collect::<Vec<_>>(),
+                "ids": &ids,
             }
         }))
         .build()
@@ -588,6 +670,7 @@ async fn list_from_ids(
         licensees
             .into_iter()
             .map(|mut it| {
+                it.address = addresses.remove(&it.id);
                 if let Some(meta) = metadata.remove(&it.id) {
                     it.license_type = meta.license_type;
                     it.medical_certificate_status = meta.medical_certificate_status;
@@ -682,6 +765,8 @@ pub struct Licensee {
 
 #[derive(Deserialize, Serialize)]
 pub struct Address {
+    #[serde(skip_serializing)]
+    user_id: Option<String>,
     pub(crate) line1: Option<String>,
     pub(crate) line2: Option<String>,
     pub(crate) insee: Option<String>,
@@ -743,7 +828,7 @@ const GRAPHQL_GET_USERS_BY_IDS: &str = "\
     query getUsersByIds($ids: [uuid!]!) {
         UTI_Utilisateurs(where: {id: {_in: $ids}}) {
             id
-            gender: CT_EST_Civilite,
+            gender: CT_EST_Civilite
             first_name: CT_Prenom
             last_name: CT_Nom
             birth_name: CT_NomDeNaissance
@@ -757,14 +842,24 @@ const GRAPHQL_GET_USERS_BY_IDS: &str = "\
             birth_place: DN_CommuneNaissance
             birth_place_insee: DN_CommuneNaissance_CodeInsee
             active_license: EST_Licencie
-            address: ADR_Adresse {
-              line1: Adresse1
-              line2: Adresse2
-              insee: CodeInsee
-              zip_code: CodePostal
-              city: Ville
-              __typename
-            }
+            __typename
+        }
+    }\
+";
+
+const GRAPHQL_GET_ADDRESSES_BY_USER_IDS: &str = "\
+    query getAddressesByUserIds($ids: [uuid!]!) {
+        ADR_Adresse(
+            where: {ID_Utilisateur: {_in: $ids}},
+            order_by: { Z_DateModification: desc },
+            limit: 1
+        ) {
+            user_id: ID_Utilisateur
+            line1: Adresse1
+            line2: Adresse2
+            insee: CodeInsee
+            zip_code: CodePostal
+            city: Ville
             __typename
         }
     }\
@@ -774,7 +869,7 @@ const GRAPHQL_GET_USERS_BY_LICENSE_NUMBER: &str = "\
     query getUsersByLicenseNumbers($license_numbers: [bigint!]!) {
         UTI_Utilisateurs(where: {LicenceNumero: {_in: $license_numbers}}) {
             id
-            gender: CT_EST_Civilite,
+            gender: CT_EST_Civilite
             first_name: CT_Prenom
             last_name: CT_Nom
             birth_name: CT_NomDeNaissance
@@ -788,14 +883,6 @@ const GRAPHQL_GET_USERS_BY_LICENSE_NUMBER: &str = "\
             birth_place: DN_CommuneNaissance
             birth_place_insee: DN_CommuneNaissance_CodeInsee
             active_license: EST_Licencie
-            address: ADR_Adresse {
-              line1: Adresse1
-              line2: Adresse2
-              insee: CodeInsee
-              zip_code: CodePostal
-              city: Ville
-              __typename
-            }
             __typename
         }
     }\
@@ -803,7 +890,7 @@ const GRAPHQL_GET_USERS_BY_LICENSE_NUMBER: &str = "\
 
 #[cfg(test)]
 mod tests {
-    use crate::myffme::{current_season, list_current_licensees, search, update_bearer_token};
+    use crate::myffme::{current_licensees, current_season, search, update_bearer_token};
     use chrono::{Datelike, NaiveDate, NaiveDateTime, TimeZone, Utc};
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -862,7 +949,7 @@ mod tests {
     async fn test_list() {
         assert!(update_bearer_token(0).await);
         let t0 = SystemTime::now();
-        let results = list_current_licensees().await.unwrap();
+        let results = current_licensees().await.unwrap();
         let elapsed = t0.elapsed().unwrap();
         println!("{elapsed:?}");
         assert!(results.len() > 0);
