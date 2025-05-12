@@ -19,7 +19,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::time::sleep;
 use tracing::{debug, warn};
 
-pub(crate) async fn ffme_auth_update_loop() {
+pub async fn ffme_auth_update_loop() {
     let timestamp = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap()
@@ -173,7 +173,7 @@ async fn update_chrome_version(timestamp: u32) -> bool {
     }
 }
 
-async fn update_bearer_token(timestamp: u32) -> bool {
+pub async fn update_bearer_token(timestamp: u32) -> bool {
     match client()
         .post("https://app.myffme.fr/api/auth/login")
         .json(&json!({
@@ -266,15 +266,15 @@ fn current_season(timestamp: Option<u32>) -> u16 {
 }
 
 #[derive(Deserialize, Serialize)]
-pub(crate) struct LicenseeInfo {
-    pub(crate) licensee: Licensee,
+pub struct LicenseeInfo {
+    pub licensee: Licensee,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) latest_license_season: Option<u16>,
+    pub latest_license_season: Option<u16>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) latest_structure_name: Option<String>,
+    pub latest_structure_name: Option<String>,
 }
 
-pub(crate) async fn search(
+pub async fn search(
     name: Option<&str>,
     dob: Option<u32>,
     license_number: Option<u32>,
@@ -460,7 +460,7 @@ pub(crate) async fn search(
     )
 }
 
-pub(crate) async fn current_licensees() -> Option<Vec<Licensee>> {
+pub async fn current_licensees() -> Option<Vec<Licensee>> {
     let season = current_season(None);
     licensees_from_ids(licensees_metadata(season).await?, season).await
 }
@@ -746,28 +746,28 @@ impl TryFrom<&str> for MedicalCertificateStatus {
 pub struct Licensee {
     pub(crate) id: String,
     #[serde(deserialize_with = "deserialize_gender")]
-    pub(crate) gender: Gender,
-    pub(crate) first_name: String,
-    pub(crate) last_name: String,
+    pub gender: Gender,
+    pub first_name: String,
+    pub last_name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) birth_name: Option<String>,
+    pub birth_name: Option<String>,
     #[serde(deserialize_with = "deserialize_date")]
-    pub(crate) dob: u32,
+    pub dob: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) email: Option<String>,
+    pub email: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) alt_email: Option<String>,
+    pub alt_email: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) phone_number: Option<String>,
+    pub phone_number: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) alt_phone_number: Option<String>,
-    pub(crate) license_number: u32,
-    pub(crate) username: String,
+    pub alt_phone_number: Option<String>,
+    pub license_number: u32,
+    pub username: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) birth_place: Option<String>,
+    pub birth_place: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) birth_place_insee: Option<String>,
-    pub(crate) active_license: bool,
+    pub birth_place_insee: Option<String>,
+    pub active_license: bool,
     #[serde(
         default,
         deserialize_with = "deserialize_address",
@@ -793,17 +793,17 @@ pub struct Licensee {
 #[derive(Deserialize, Serialize)]
 pub struct Address {
     #[serde(skip_serializing)]
-    pub(crate) user_id: Option<String>,
+    pub user_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) line1: Option<String>,
+    pub line1: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) line2: Option<String>,
+    pub line2: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) insee: Option<String>,
+    pub insee: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) zip_code: Option<String>,
+    pub zip_code: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) city: Option<String>,
+    pub city: Option<String>,
 }
 
 fn deserialize_address<'de, D>(deserializer: D) -> Result<Option<Address>, D::Error>

@@ -1,11 +1,7 @@
-mod address;
-mod chrome;
-mod myffme;
-
-use crate::myffme::ffme_auth_update_loop;
 use http_body_util::{Either, Empty, Full};
 use hyper::body::{Bytes, Incoming};
 use hyper::{Request, Response};
+use pierre_blanche_server::myffme::ffme_auth_update_loop;
 use pinboard::NonEmptyPinboard;
 use std::sync::Arc;
 use tiered_server::api::Extension;
