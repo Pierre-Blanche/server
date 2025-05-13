@@ -1,3 +1,4 @@
+use crate::address::City;
 use crate::chrome::{ChromeVersion, CHROME_VERSION};
 use hyper::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, ORIGIN, REFERER};
 use hyper::http::{HeaderName, HeaderValue};
@@ -687,6 +688,54 @@ async fn licensees_from_ids(
     )
 }
 
+pub async fn update_address(user_id: &str, zip_code: &str, city: &City) -> Option<()> {
+    let url = Url::parse("https://back-prod.core.myffme.fr/v1/graphql").unwrap();
+    let client = client();
+    let request = client
+        .post(url.as_str())
+        .header(ORIGIN, HeaderValue::from_static("https://www.myffme.fr"))
+        .header(REFERER, HeaderValue::from_static("https://www.myffme.fr/"))
+        .header(X_HASURA_ROLE, ADMIN)
+        .header(
+            AUTHORIZATION,
+            MYFFME_AUTHORIZATION
+                .get_ref()
+                .map(|it| it.bearer_token.clone())?,
+        )
+        .json(&json!({
+            "operationName": "updateAddress",
+            "query": GRAPHQL_UPDATE_ADDRESS_CITY,
+            "variables": {
+                "id": user_id,
+                "city": city.name,
+                "zip": zip_code,
+                "insee": city.insee
+            }
+        }))
+        .build()
+        .ok()?;
+    let response = client.execute(request).await.ok()?;
+    let success = (&response.status()).is_success();
+    #[cfg(test)]
+    {
+        println!("POST {}", url.as_str());
+        println!("{}", response.status());
+        let text = response.text().await.ok()?;
+        let file_name = format!(".update_address_{user_id}.json");
+        tokio::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .create(true)
+            .open(&file_name)
+            .await
+            .ok()?
+            .write_all(text.as_bytes())
+            .await
+            .unwrap();
+    }
+    if success { Some(()) } else { None }
+}
+
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Gender {
@@ -744,7 +793,7 @@ impl TryFrom<&str> for MedicalCertificateStatus {
 
 #[derive(Deserialize, Serialize)]
 pub struct Licensee {
-    pub(crate) id: String,
+    pub id: String,
     #[serde(deserialize_with = "deserialize_gender")]
     pub gender: Gender,
     pub first_name: String,
@@ -920,6 +969,28 @@ const GRAPHQL_GET_USERS_BY_LICENSE_NUMBER: &str = "\
     }\
 ";
 
+const GRAPHQL_UPDATE_ADDRESS_CITY: &str = "\
+    mutation updateAddress($id: uuid!, $city: String!, $zip: String!, insee: String!) {
+        update_ADR_Adresse(
+            where: { ID_Utilisateur: {_eq: $id}},
+            _set: {
+                Ville: $city,
+                CodeInsee: $insee,
+                CodePostal: $zip
+            }
+        ) {
+            affected_rows
+            returning {
+                id
+                ID_Utilisateur
+                Ville
+                CodeInsee
+                CodePostal
+            }
+        }
+    }\
+";
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1002,6 +1073,17 @@ mod tests {
         println!("{elapsed:?}");
         assert!(!results.is_empty());
         println!("{}", results.len());
-        println!("{}", serde_json::to_string(&results).unwrap())
+        println!("{}", serde_json::to_string(&results).unwrap());
+        tokio::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .create(true)
+            .open(".list.json")
+            .await
+            .ok()
+            .unwrap()
+            .write_all(serde_json::to_string(&results).unwrap().as_bytes())
+            .await
+            .unwrap();
     }
 }

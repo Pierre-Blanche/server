@@ -53,14 +53,14 @@ fn client() -> Client {
 }
 
 #[derive(Deserialize, Serialize)]
-pub(crate) struct City {
+pub struct City {
     #[serde(rename = "nom")]
-    name: String,
+    pub name: String,
     #[serde(rename = "code")]
-    insee: String,
+    pub insee: String,
 }
 
-pub(crate) async fn city_by_zip_code(zip_code: &str) -> Option<Vec<City>> {
+pub async fn city_by_zip_code(zip_code: &str) -> Option<Vec<City>> {
     let mut url = Url::parse("https://geo.api.gouv.fr/communes").unwrap();
     let mut query = url.query_pairs_mut();
     query.append_pair("codePostal", zip_code);
@@ -91,7 +91,7 @@ pub(crate) async fn city_by_zip_code(zip_code: &str) -> Option<Vec<City>> {
     response.json::<Vec<City>>().await.ok()
 }
 
-pub(crate) async fn address(insee: Option<&str>, text: &str) -> Option<Vec<Address>> {
+pub async fn address(insee: Option<&str>, text: &str) -> Option<Vec<Address>> {
     #[derive(Deserialize)]
     struct Addr {
         name: String,

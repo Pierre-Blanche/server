@@ -1,5 +1,6 @@
 use pierre_blanche_server::myffme::{search, update_bearer_token};
 use pierre_blanche_server::user::Metadata;
+use tiered_server::norm::{normalize_first_name, normalize_last_name};
 use tiered_server::store::{snapshot, Snapshot};
 use tiered_server::user::User;
 
@@ -19,9 +20,11 @@ async fn main() {
             "failed to search for user: {} {}",
             user.first_name, user.last_name
         ));
+        let normalized_last_name = normalize_last_name(&user.last_name);
+        let normalized_first_name = normalize_last_name(&user.first_name);
         let mut iter = results.into_iter().filter(|it| {
-            it.licensee.last_name == user.last_name
-                && it.licensee.first_name == user.first_name
+            normalize_last_name(&it.licensee.last_name) == normalized_last_name
+                && normalize_first_name(&it.licensee.first_name) == normalized_first_name
                 && it.licensee.dob == user.date_of_birth
         });
         let first = iter.next().expect(&format!(
