@@ -10,13 +10,19 @@ mod tests {
 
     #[tokio::test]
     async fn test_update() {
-        assert!(update_bearer_token(0).await);
+        println!(
+            "{}",
+            update_bearer_token(0)
+                .await
+                .expect("failed to get bearer token")
+        );
         let user = search(None, None, Some(33109))
             .await
             .expect("failed to search for user");
         let mut iter = user.into_iter();
         let user = iter.next().expect("failed to find user");
         assert!(iter.next().is_none(), "found more than one user");
+        println!("user id: {}", user.licensee.id);
         let city = city_by_zip_code("85200")
             .await
             .expect("failed to search for city")

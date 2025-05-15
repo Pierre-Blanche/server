@@ -7,7 +7,7 @@ use tiered_server::user::User;
 #[tokio::main]
 async fn main() {
     let snapshot = snapshot(None).await.expect("failed to get store content");
-    assert!(update_bearer_token(0).await);
+    assert!(update_bearer_token(0).await.is_some());
     let mut modified = Vec::new();
     for (key, mut user) in snapshot.list::<User>("acc/") {
         let results = search(

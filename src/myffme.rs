@@ -26,7 +26,7 @@ pub async fn ffme_auth_update_loop() {
         .unwrap()
         .as_secs() as u32;
     update_chrome_version(timestamp).await;
-    update_bearer_token(timestamp).await;
+    let _ = update_bearer_token(timestamp).await;
     thread::spawn(move || {
         tokio::runtime::Builder::new_current_thread()
             .enable_time()
@@ -52,7 +52,7 @@ pub async fn ffme_auth_update_loop() {
                         .map(|it| it.timestamp)
                         .unwrap_or(0);
                     if timestamp > token_timestamp + AUTHORIZATION_VALIDITY_SECONDS {
-                        if !update_bearer_token(timestamp).await {
+                        if update_bearer_token(timestamp).await.is_none() {
                             success = false;
                         }
                     }
@@ -174,7 +174,7 @@ async fn update_chrome_version(timestamp: u32) -> bool {
     }
 }
 
-pub async fn update_bearer_token(timestamp: u32) -> bool {
+pub async fn update_bearer_token(timestamp: u32) -> Option<String> {
     match client()
         .post("https://app.myffme.fr/api/auth/login")
         .json(&json!({
@@ -194,16 +194,16 @@ pub async fn update_bearer_token(timestamp: u32) -> bool {
                     bearer_token,
                     timestamp,
                 });
-                true
+                Some(token.token)
             }
             Err(err) => {
                 debug!("failed to parse login response:\n{err:?}");
-                false
+                None
             }
         },
         Err(err) => {
             debug!("failed to get login response:\n{err:?}");
-            false
+            None
         }
     }
 }
@@ -970,7 +970,7 @@ const GRAPHQL_GET_USERS_BY_LICENSE_NUMBER: &str = "\
 ";
 
 const GRAPHQL_UPDATE_ADDRESS_CITY: &str = "\
-    mutation updateAddress($id: uuid!, $city: String!, $zip: String!, insee: String!) {
+    mutation updateAddress($id: uuid!, $city: String!, $zip: String!, $insee: String!) {
         update_ADR_Adresse(
             where: { ID_Utilisateur: {_eq: $id}},
             _set: {
@@ -1036,7 +1036,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_search_by_license_number() {
-        assert!(update_bearer_token(0).await);
+        assert!(update_bearer_token(0).await.is_some());
         let t0 = SystemTime::now();
         let results = search(None, None, Some(154316)).await.unwrap();
         let elapsed = t0.elapsed().unwrap();
@@ -1051,7 +1051,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_search_by_name_and_dob() {
-        assert!(update_bearer_token(0).await);
+        assert!(update_bearer_token(0).await.is_some());
         let t0 = SystemTime::now();
         let results = search(Some("DAVID"), Some(19770522), None).await.unwrap();
         let elapsed = t0.elapsed().unwrap();
@@ -1066,7 +1066,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_list() {
-        assert!(update_bearer_token(0).await);
+        assert!(update_bearer_token(0).await.is_some());
         let t0 = SystemTime::now();
         let results = current_licensees().await.unwrap();
         let elapsed = t0.elapsed().unwrap();
