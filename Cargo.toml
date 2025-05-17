@@ -9,7 +9,7 @@ path = "src/main.rs"
 
 [[bin]]
 name = "add_license_numbers"
-path = "src/tools/add_license_numbers.rs"
+path = "src/tools/add_user_metadata.rs"
 
 [[bin]]
 name = "update_address"

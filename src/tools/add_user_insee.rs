@@ -8,12 +8,16 @@ use tiered_server::user::User;
 async fn main() {
     let snapshot = snapshot(None).await.expect("failed to get store content");
     assert!(update_bearer_token(0).await.is_some());
-    let mut modified = Vec::new();
+    let mut updates = Vec::new();
     for (key, mut user) in snapshot.list::<User>("acc/") {
+        let mut metadata = user
+            .metadata
+            .map(|it| serde_json::from_value(it).expect("failed to deserialize metadata"))
+            .unwrap_or(Metadata::default());
         let results = search(
             Some(&format!("{} {}", user.first_name, user.last_name)),
             Some(user.date_of_birth),
-            None,
+            metadata.license_number,
         )
         .await
         .expect(&format!(
@@ -37,18 +41,19 @@ async fn main() {
             user.first_name,
             user.last_name
         );
-        let mut metadata = user
-            .metadata
-            .map(|it| serde_json::from_value(it).expect("failed to deserialize metadata"))
-            .unwrap_or(Metadata::default());
-        if metadata.license_number != Some(first.licensee.license_number) {
+        if metadata.license_number != Some(first.licensee.license_number)
+            || metadata.latest_license_season != first.latest_license_season
+            || metadata.myffme_user_id.as_deref() != Some(&first.licensee.id)
+        {
             metadata.license_number = Some(first.licensee.license_number);
+            metadata.latest_license_season = first.latest_license_season;
+            metadata.myffme_user_id = Some(first.licensee.id);
             user.metadata =
                 Some(serde_json::to_value(metadata).expect("failed to serialize metadata"));
-            modified.push((key, user));
+            updates.push((key, user));
         }
     }
-    for (key, user) in modified {
+    for (key, user) in updates {
         Snapshot::set(key, &user).await.expect(&format!(
             "failed to update user: {} {}",
             user.first_name, user.last_name

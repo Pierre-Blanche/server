@@ -60,6 +60,38 @@ pub struct City {
     pub insee: String,
 }
 
+pub async fn city_name_by_insee(insee: &str) -> Option<String> {
+    let mut url = Url::parse(&format!("https://geo.api.gouv.fr/communes/{}", insee)).unwrap();
+    let mut query = url.query_pairs_mut();
+    query.append_pair("format", "json");
+    query.append_pair("fields", "nom");
+    drop(query);
+    debug!("GET {}", url.as_str());
+    let client = client();
+    let request = client.get(url.as_str()).build().ok()?;
+    let response = client.execute(request).await.ok()?;
+    #[cfg(test)]
+    {
+        println!("GET {}", url.as_str());
+        println!("{}", response.status());
+        let text = response.text().await.ok()?;
+        let file_name = format!(".insee_{insee}.json");
+        tokio::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .create(true)
+            .open(&file_name)
+            .await
+            .ok()?
+            .write_all(text.as_bytes())
+            .await
+            .unwrap();
+        serde_json::from_str::<City>(&text).ok().map(|it| it.name)
+    }
+    #[cfg(not(test))]
+    response.json::<City>().await.ok().map(|it| it.name)
+}
+
 pub async fn city_by_zip_code(zip_code: &str) -> Option<Vec<City>> {
     let mut url = Url::parse("https://geo.api.gouv.fr/communes").unwrap();
     let mut query = url.query_pairs_mut();
@@ -176,6 +208,15 @@ pub async fn address(insee: Option<&str>, text: &str) -> Option<Vec<Address>> {
 mod tests {
     use super::*;
     use std::time::SystemTime;
+
+    #[tokio::test]
+    async fn test_search_by_insee_code() {
+        let t0 = SystemTime::now();
+        let name = city_name_by_insee("85092").await.unwrap();
+        let elapsed = t0.elapsed().unwrap();
+        println!("{elapsed:?}");
+        assert_eq!("Fontenay-le-Comte", name);
+    }
 
     #[tokio::test]
     async fn test_search_by_zip_code() {
