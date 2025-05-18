@@ -92,7 +92,44 @@ pub async fn city_name_by_insee(insee: &str) -> Option<String> {
     response.json::<City>().await.ok().map(|it| it.name)
 }
 
-pub async fn city_by_zip_code(zip_code: &str) -> Option<Vec<City>> {
+pub async fn alternate_city_names(insee_code: &str) -> Option<Vec<String>> {
+    let mut url = Url::parse("https://geo.api.gouv.fr/communes_associees_deleguees").unwrap();
+    let mut query = url.query_pairs_mut();
+    query.append_pair("chefLieu", insee_code);
+    drop(query);
+    debug!("GET {}", url.as_str());
+    let client = client();
+    let request = client.get(url.as_str()).build().ok()?;
+    let response = client.execute(request).await.ok()?;
+    #[derive(Deserialize)]
+    struct Result {
+        #[serde(rename = "nom")]
+        name: String,
+    }
+    #[cfg(test)]
+    let results = {
+        println!("GET {}", url.as_str());
+        println!("{}", response.status());
+        let text = response.text().await.ok()?;
+        let file_name = format!(".alternate_city_names_{insee_code}.json");
+        tokio::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .create(true)
+            .open(&file_name)
+            .await
+            .ok()?
+            .write_all(text.as_bytes())
+            .await
+            .unwrap();
+        serde_json::from_str::<Vec<Result>>(&text).ok()?
+    };
+    #[cfg(not(test))]
+    let results = response.json::<Vec<Result>>().await.ok()?;
+    Some(results.into_iter().map(|it| it.name).collect())
+}
+
+pub async fn cities_by_zip_code(zip_code: &str) -> Option<Vec<City>> {
     let mut url = Url::parse("https://geo.api.gouv.fr/communes").unwrap();
     let mut query = url.query_pairs_mut();
     query.append_pair("codePostal", zip_code);
@@ -221,7 +258,7 @@ mod tests {
     #[tokio::test]
     async fn test_search_by_zip_code() {
         let t0 = SystemTime::now();
-        let results = city_by_zip_code("85200").await.unwrap();
+        let results = cities_by_zip_code("85200").await.unwrap();
         let elapsed = t0.elapsed().unwrap();
         println!("{elapsed:?}");
         assert_eq!(12, results.len());

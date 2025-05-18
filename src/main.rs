@@ -5,6 +5,7 @@ use pierre_blanche_server::myffme::ffme_auth_update_loop;
 use pinboard::NonEmptyPinboard;
 use std::sync::Arc;
 use tiered_server::api::Extension;
+use tiered_server::server::serve;
 use tiered_server::store::Snapshot;
 use zip_static_handler::handler::Handler;
 
@@ -49,5 +50,5 @@ async fn main() {
         ))
         .init();
     ffme_auth_update_loop().await;
-    // serve(Box::leak(Box::new(ApiExtension))).await;
+    serve(Box::leak(Box::new(ApiExtension))).await;
 }

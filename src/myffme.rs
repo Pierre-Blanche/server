@@ -57,9 +57,9 @@ pub async fn ffme_auth_update_loop() {
                         }
                     }
                     sleep(Duration::from_secs(if success {
-                        15_000 + fastrand::i16(-1500..1500) as u64
+                        (15_000 + fastrand::i16(-1500..1500)) as u64
                     } else {
-                        600 + fastrand::i16(-100..100) as u64
+                        (600 + fastrand::i16(-100..100)) as u64
                     }))
                     .await;
                 }
@@ -466,7 +466,7 @@ pub async fn current_licensees() -> Option<Vec<Licensee>> {
     licensees_from_ids(licensees_metadata(season).await?, season).await
 }
 
-async fn user_addresses(ids: &[&str]) -> Option<BTreeMap<String, Address>> {
+pub async fn user_addresses(ids: &[&str]) -> Option<BTreeMap<String, Address>> {
     let url = Url::parse("https://back-prod.core.myffme.fr/v1/graphql").unwrap();
     let client = client();
     let request = client
@@ -533,6 +533,7 @@ async fn user_addresses(ids: &[&str]) -> Option<BTreeMap<String, Address>> {
     )
 }
 
+#[derive(Default)]
 struct UserMetadata {
     license_type: Option<LicenseType>,
     medical_certificate_status: Option<MedicalCertificateStatus>,
