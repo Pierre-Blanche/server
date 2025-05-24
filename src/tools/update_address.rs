@@ -130,9 +130,11 @@ mod tests {
                 }
             } {
                 eprintln!(
-                    "mismatch for user {} {} with address {}",
+                    "mismatch for user {} {} with id {} and license #{}; address: {}",
                     user.first_name,
                     user.last_name,
+                    user.id,
+                    user.license_number,
                     serde_json::to_string(&user.address).unwrap()
                 );
             }

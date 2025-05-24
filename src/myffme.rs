@@ -1,5 +1,6 @@
 use crate::address::City;
 use crate::chrome::{ChromeVersion, CHROME_VERSION};
+use crate::user::Metadata;
 use hyper::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, ORIGIN, REFERER};
 use hyper::http::{HeaderName, HeaderValue};
 use pinboard::Pinboard;
@@ -13,12 +14,16 @@ use serde_json::json;
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
 use std::thread;
+use std::thread::current;
 use std::time::{Duration, SystemTime};
 use tiered_server::env::{secret_value, ConfigurationKey};
 use tiered_server::headers::JSON;
+use tiered_server::norm::{normalize_first_name, normalize_last_name};
+use tiered_server::store::Snapshot;
+use tiered_server::user::User;
 use tokio::io::AsyncWriteExt;
 use tokio::time::sleep;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 pub async fn ffme_auth_update_loop() {
     let timestamp = SystemTime::now()
@@ -208,38 +213,6 @@ pub async fn update_bearer_token(timestamp: u32) -> Option<String> {
     }
 }
 
-fn deserialize_date<'de, D>(deserializer: D) -> Result<u32, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let s: &str = serde::Deserialize::deserialize(deserializer)?;
-    let date = s
-        .split('T')
-        .next()
-        .ok_or_else(|| serde::de::Error::custom("invalid date"))?;
-    let mut split = date.split('-');
-    let yyyy = split
-        .next()
-        .ok_or_else(|| serde::de::Error::custom("invalid date"))?;
-    let mm = split
-        .next()
-        .ok_or_else(|| serde::de::Error::custom("invalid date"))?;
-    let dd = split
-        .next()
-        .ok_or_else(|| serde::de::Error::custom("invalid date"))?;
-    format!("{yyyy}{mm}{dd}")
-        .parse()
-        .map_err(serde::de::Error::custom)
-}
-
-fn deserialize_license_number<'de, D>(deserializer: D) -> Result<u32, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let s: &str = serde::Deserialize::deserialize(deserializer)?;
-    s.parse().map_err(serde::de::Error::custom)
-}
-
 const APPROXIMATE_NUMBER_OF_SECS_IN_YEAR: u32 = 31_557_600;
 
 fn current_season(timestamp: Option<u32>) -> u16 {
@@ -264,6 +237,75 @@ fn current_season(timestamp: Option<u32>) -> u16 {
     } else {
         2020 + years
     }
+}
+
+pub async fn sync(snapshot: &Snapshot) -> Option<()> {
+    let current_season = current_season(None);
+    let current_licensees = current_licensees().await?;
+    let mut missing_current_licensees =
+        BTreeMap::from_iter(current_licensees.iter().map(|it| (it.id.as_str(), it)));
+    let mut updates = Vec::new();
+    for (key, mut user) in snapshot.list::<User>("acc/") {
+        let normalized_last_name = normalize_last_name(&user.last_name);
+        let normalized_first_name = normalize_first_name(&user.first_name);
+        let mut metadata = user
+            .metadata
+            .map(|it| serde_json::from_value(it).expect("failed to deserialize metadata"))
+            .unwrap_or(Metadata::default());
+        if metadata.myffme_user_id.is_none() {
+            if let Some(found) = current_licensees.iter().find(|&it| {
+                it.dob == user.date_of_birth
+                    && normalized_last_name == normalize_last_name(&it.last_name)
+                    && normalized_first_name == normalize_first_name(&it.first_name)
+            }) {
+                missing_current_licensees.remove(found.id.as_str());
+                metadata.myffme_user_id = Some(found.id.clone());
+                metadata.license_number = Some(found.license_number);
+                metadata.latest_license_season = found.last_license_season;
+                metadata.insee = found
+                    .address
+                    .as_ref()
+                    .and_then(|it| it.insee.as_ref())
+                    .cloned();
+                info!(
+                    "updating metadata for user {} {}: {} {} {}",
+                    user.first_name,
+                    user.last_name,
+                    found.id.as_str(),
+                    found.license_number,
+                    found.last_license_season.unwrap_or(0)
+                );
+                user.metadata =
+                    Some(serde_json::to_value(metadata).expect("failed to serialize metadata"));
+                updates.push((key, user));
+            } else if let Some(info) = search(
+                Some(&format!("{} {}", user.first_name, user.last_name)),
+                Some(user.date_of_birth),
+                metadata.license_number,
+            )
+            .await
+            .and_then(|list| {
+                list.into_iter().find(|it| {
+                    it.licensee.dob == user.date_of_birth
+                        && normalized_last_name == normalize_last_name(&it.licensee.last_name)
+                        && normalized_first_name == normalize_first_name(&it.licensee.first_name)
+                })
+            }) {
+                // let found = metadata.myffme_user_id = Some(found.id.clone());
+                // metadata.license_number = Some(found.license_number);
+                // metadata.latest_license_season = found.last_license_season;
+                // metadata.insee = found
+                //     .address
+                //     .as_ref()
+                //     .and_then(|it| it.insee.as_ref())
+                //     .cloned();
+                // user.metadata =
+                //     Some(serde_json::to_value(metadata).expect("failed to serialize metadata"));
+                // updates.push((key, user));
+            }
+        }
+    }
+    Some(())
 }
 
 #[derive(Deserialize, Serialize)]
@@ -459,6 +501,124 @@ pub async fn search(
             })
             .collect(),
     )
+}
+
+pub async fn user_by_license_number(license_number: u32) -> Option<LicenseeInfo> {
+    #[derive(Deserialize)]
+    struct Structure {
+        #[serde(rename = "label")]
+        name: String,
+    }
+    #[derive(Deserialize)]
+    struct Season {
+        #[serde(default, deserialize_with = "deserialize_season")]
+        id: u16,
+    }
+    #[derive(Deserialize)]
+    struct User {
+        id: String,
+        #[serde(deserialize_with = "deserialize_date", rename = "dnDateNaissance")]
+        dob: u32,
+        #[serde(rename = "ctNom")]
+        last_name: String,
+        #[serde(rename = "ctPrenom")]
+        first_name: String,
+        #[serde(rename = "ctEmail")]
+        email: Option<String>,
+        #[serde(
+            deserialize_with = "deserialize_license_number",
+            rename = "licenceNumero"
+        )]
+        license_number: u32,
+    }
+    #[derive(Deserialize)]
+    struct Product {
+        #[serde(
+            default,
+            deserialize_with = "deserialize_license_type",
+            skip_serializing_if = "Option::is_none",
+            rename = "slug"
+        )]
+        license_type: Option<LicenseType>,
+    }
+    #[derive(Deserialize)]
+    struct Result {
+        #[serde(
+            default,
+            deserialize_with = "deserialize_medical_certificate_status",
+            skip_serializing_if = "Option::is_none"
+        )]
+        status: Option<MedicalCertificateStatus>,
+        structure: Option<Structure>,
+        season: Season,
+        user: User,
+        product: Option<Product>,
+    }
+    let mut url = Url::parse("https://api.core.myffme.fr/api/licensee").unwrap();
+    let mut query = url.query_pairs_mut();
+    query.append_pair("page", "1");
+    query.append_pair("itemsPerPage", "1");
+    query.append_pair("user.licenceNumero", &format!("{}", license_number));
+    query.append_pair("order[season.id]", "desc");
+    drop(query);
+    debug!("GET {}", url.as_str());
+    let client = client();
+    let request = client
+        .get(url.as_str())
+        .header(ORIGIN, HeaderValue::from_static("https://app.myffme.fr"))
+        .header(REFERER, HeaderValue::from_static("https://app.myffme.fr/"))
+        .header(
+            AUTHORIZATION,
+            MYFFME_AUTHORIZATION
+                .get_ref()
+                .map(|it| it.bearer_token.clone())?,
+        )
+        .build()
+        .ok()?;
+    let response = client.execute(request).await.ok()?;
+    #[cfg(test)]
+    let result = {
+        println!("GET {}", url.as_str());
+        println!("{}", response.status());
+        let text = response.text().await.ok()?;
+        let mut file_name = format!(".license_{license_number}.json");
+        tokio::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .create(true)
+            .open(&file_name)
+            .await
+            .ok()?
+            .write_all(text.as_bytes())
+            .await
+            .unwrap();
+        serde_json::from_str::<Vec<Result>>(&text)
+            .ok()?
+            .into_iter()
+            .next()?
+    };
+    #[cfg(not(test))]
+    let result = response
+        .json::<Vec<Result>>()
+        .await
+        .ok()?
+        .into_iter()
+        .next()?;
+    Some(LicenseeInfo {
+        latest_license_season: Some(result.season.id),
+        latest_structure_name: result.structure.map(|it| it.name),
+        licensee: Licensee {
+            id: result.user.id,
+            license_number: result.user.license_number,
+            dob: result.user.dob,
+            last_name: result.user.last_name,
+            first_name: result.user.first_name,
+            email: result.user.email,
+            license_type: result.product.and_then(|it| it.license_type),
+            medical_certificate_status: result.status,
+            last_license_season: Some(result.season.id),
+        },
+    })
 }
 
 pub async fn current_licensees() -> Option<Vec<Licensee>> {
@@ -854,6 +1014,46 @@ pub struct Address {
     pub zip_code: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub city: Option<String>,
+}
+
+fn deserialize_date<'de, D>(deserializer: D) -> Result<u32, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s: &str = serde::Deserialize::deserialize(deserializer)?;
+    let date = s
+        .split('T')
+        .next()
+        .ok_or_else(|| serde::de::Error::custom("invalid date"))?;
+    let mut split = date.split('-');
+    let yyyy = split
+        .next()
+        .ok_or_else(|| serde::de::Error::custom("invalid date"))?;
+    let mm = split
+        .next()
+        .ok_or_else(|| serde::de::Error::custom("invalid date"))?;
+    let dd = split
+        .next()
+        .ok_or_else(|| serde::de::Error::custom("invalid date"))?;
+    format!("{yyyy}{mm}{dd}")
+        .parse()
+        .map_err(serde::de::Error::custom)
+}
+
+fn deserialize_season<'de, D>(deserializer: D) -> Result<u16, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s: &str = serde::Deserialize::deserialize(deserializer)?;
+    s.parse().map_err(serde::de::Error::custom)
+}
+
+fn deserialize_license_number<'de, D>(deserializer: D) -> Result<u32, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s: &str = serde::Deserialize::deserialize(deserializer)?;
+    s.parse().map_err(serde::de::Error::custom)
 }
 
 fn deserialize_address<'de, D>(deserializer: D) -> Result<Option<Address>, D::Error>
