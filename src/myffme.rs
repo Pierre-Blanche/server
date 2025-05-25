@@ -511,7 +511,6 @@ pub async fn user_by_license_number(license_number: u32) -> Option<LicenseeInfo>
     }
     #[derive(Deserialize)]
     struct Season {
-        #[serde(default, deserialize_with = "deserialize_season")]
         id: u16,
     }
     #[derive(Deserialize)]
@@ -554,7 +553,7 @@ pub async fn user_by_license_number(license_number: u32) -> Option<LicenseeInfo>
         user: User,
         product: Option<Product>,
     }
-    let mut url = Url::parse("https://api.core.myffme.fr/api/licensee").unwrap();
+    let mut url = Url::parse("https://api.core.myffme.fr/api/licences").unwrap();
     let mut query = url.query_pairs_mut();
     query.append_pair("page", "1");
     query.append_pair("itemsPerPage", "1");
@@ -593,6 +592,11 @@ pub async fn user_by_license_number(license_number: u32) -> Option<LicenseeInfo>
             .await
             .unwrap();
         serde_json::from_str::<Vec<Result>>(&text)
+            .map_err(|err| {
+                let s = format!("{err:?}");
+                println!("{s}");
+                s
+            })
             .ok()?
             .into_iter()
             .next()?
@@ -604,12 +608,14 @@ pub async fn user_by_license_number(license_number: u32) -> Option<LicenseeInfo>
         .ok()?
         .into_iter()
         .next()?;
+    let active_license = result.season.id == current_season(None);
     Some(LicenseeInfo {
         latest_license_season: Some(result.season.id),
         latest_structure_name: result.structure.map(|it| it.name),
         licensee: Licensee {
             id: result.user.id,
             license_number: result.user.license_number,
+            active_license,
             dob: result.user.dob,
             last_name: result.user.last_name,
             first_name: result.user.first_name,
@@ -617,6 +623,14 @@ pub async fn user_by_license_number(license_number: u32) -> Option<LicenseeInfo>
             license_type: result.product.and_then(|it| it.license_type),
             medical_certificate_status: result.status,
             last_license_season: Some(result.season.id),
+            gender: Gender::Unspecified,
+            alt_email: None,
+            phone_number: None,
+            birth_name: None,
+            alt_phone_number: None,
+            address: None,
+            birth_place: None,
+            birth_place_insee: None,
         },
     })
 }
@@ -902,6 +916,7 @@ pub async fn update_address(user_id: &str, zip_code: &str, city: &City) -> Optio
 pub enum Gender {
     Female,
     Male,
+    Unspecified,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -972,8 +987,6 @@ pub struct Licensee {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub alt_phone_number: Option<String>,
     pub license_number: u32,
-    pub username: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub birth_place: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub birth_place_insee: Option<String>,
@@ -1024,28 +1037,12 @@ where
     let date = s
         .split('T')
         .next()
-        .ok_or_else(|| serde::de::Error::custom("invalid date"))?;
+        .ok_or_else(|| Error::custom("invalid date"))?;
     let mut split = date.split('-');
-    let yyyy = split
-        .next()
-        .ok_or_else(|| serde::de::Error::custom("invalid date"))?;
-    let mm = split
-        .next()
-        .ok_or_else(|| serde::de::Error::custom("invalid date"))?;
-    let dd = split
-        .next()
-        .ok_or_else(|| serde::de::Error::custom("invalid date"))?;
-    format!("{yyyy}{mm}{dd}")
-        .parse()
-        .map_err(serde::de::Error::custom)
-}
-
-fn deserialize_season<'de, D>(deserializer: D) -> Result<u16, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let s: &str = serde::Deserialize::deserialize(deserializer)?;
-    s.parse().map_err(serde::de::Error::custom)
+    let yyyy = split.next().ok_or_else(|| Error::custom("invalid date"))?;
+    let mm = split.next().ok_or_else(|| Error::custom("invalid date"))?;
+    let dd = split.next().ok_or_else(|| Error::custom("invalid date"))?;
+    format!("{yyyy}{mm}{dd}").parse().map_err(Error::custom)
 }
 
 fn deserialize_license_number<'de, D>(deserializer: D) -> Result<u32, D::Error>
@@ -1053,7 +1050,7 @@ where
     D: serde::Deserializer<'de>,
 {
     let s: &str = serde::Deserialize::deserialize(deserializer)?;
-    s.parse().map_err(serde::de::Error::custom)
+    s.parse().map_err(Error::custom)
 }
 
 fn deserialize_address<'de, D>(deserializer: D) -> Result<Option<Address>, D::Error>
@@ -1124,6 +1121,12 @@ const GRAPHQL_GET_USERS_BY_IDS: &str = "\
             birth_place: DN_CommuneNaissance
             birth_place_insee: DN_CommuneNaissance_CodeInsee
             active_license: EST_Licencie
+            STR_StructureUtilisateurs {
+                structure {
+                    id,
+                    label
+                }
+            },
             __typename
         }
     }\
@@ -1165,6 +1168,12 @@ const GRAPHQL_GET_USERS_BY_LICENSE_NUMBER: &str = "\
             birth_place: DN_CommuneNaissance
             birth_place_insee: DN_CommuneNaissance_CodeInsee
             active_license: EST_Licencie
+            STR_StructureUtilisateurs {
+                structure {
+                    id,
+                    label
+                }
+            },
             __typename
         }
     }\
@@ -1263,6 +1272,25 @@ mod tests {
         assert_eq!(19770522, result.licensee.dob);
         assert_eq!("DAVID", result.licensee.last_name);
         println!("{}", serde_json::to_string(result).unwrap())
+    }
+
+    #[tokio::test]
+    async fn test_user_by_license_number_and_name() {
+        assert!(update_bearer_token(0).await.is_some());
+        let t0 = SystemTime::now();
+        let info = user_by_license_number(154316).await.unwrap();
+        let elapsed = t0.elapsed().unwrap();
+        println!("{elapsed:?}");
+        assert!(info.latest_structure_name.is_some());
+        assert!(info.latest_license_season.is_some());
+        assert_eq!(
+            info.latest_license_season,
+            info.licensee.last_license_season
+        );
+        assert_eq!("5f5e0d27-cf50-42ea-89f8-f1649a2ef6aa", info.licensee.id);
+        assert_eq!(19750826, info.licensee.dob);
+        assert_eq!("GRAS", info.licensee.last_name);
+        println!("{}", serde_json::to_string(&info).unwrap())
     }
 
     #[tokio::test]
