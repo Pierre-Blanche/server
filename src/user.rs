@@ -51,5 +51,5 @@ pub struct Structure {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code: Option<String>,
-    pub department: String,
+    pub department: Option<String>,
 }

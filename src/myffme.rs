@@ -430,6 +430,7 @@ async fn users_response_by_dob(dob: u32) -> Option<Response> {
 async fn users_response_to_members(response: Response) -> Option<Vec<Member>> {
     #[cfg(test)]
     let users = {
+        println!("users");
         println!("{}", response.status());
         let text = response.text().await.ok()?;
         let file_name = ".users.json";
@@ -474,7 +475,7 @@ async fn users_response_to_members(response: Response) -> Option<Vec<Member>> {
                 Member {
                     first_name: it.first_name,
                     last_name: it.last_name,
-                    email: it.email.unwrap_or(it.alt_email.unwrap()),
+                    email: it.email.unwrap_or_else(|| it.alt_email.unwrap()),
                     dob: it.dob,
                     metadata: Metadata {
                         myffme_user_id: Some(it.id),
@@ -526,6 +527,7 @@ pub async fn user_addresses(ids: &[&str]) -> Option<BTreeMap<String, Address>> {
     }
     #[cfg(test)]
     let addresses = {
+        println!("addresses");
         println!("POST {}", url.as_str());
         println!("{}", response.status());
         let text = response.text().await.ok()?;
@@ -541,6 +543,10 @@ pub async fn user_addresses(ids: &[&str]) -> Option<BTreeMap<String, Address>> {
             .await
             .unwrap();
         serde_json::from_str::<GraphqlResponse>(&text)
+            .map_err(|e| {
+                eprintln!("{e:?}");
+                e
+            })
             .ok()?
             .data
             .list
@@ -584,7 +590,6 @@ async fn user_licenses(ids: &[&str]) -> Option<BTreeMap<String, License>> {
     let response = client.execute(request).await.ok()?;
     #[derive(Deserialize)]
     struct LicenseList {
-        #[serde(rename = "licenses")]
         list: Vec<License>,
     }
     #[derive(Deserialize)]
@@ -593,6 +598,7 @@ async fn user_licenses(ids: &[&str]) -> Option<BTreeMap<String, License>> {
     }
     #[cfg(test)]
     let licenses = {
+        println!("licenses");
         println!("POST {}", url.as_str());
         println!("{}", response.status());
         let text = response.text().await.ok()?;
@@ -608,6 +614,10 @@ async fn user_licenses(ids: &[&str]) -> Option<BTreeMap<String, License>> {
             .await
             .unwrap();
         serde_json::from_str::<GraphqlResponse>(&text)
+            .map_err(|e| {
+                eprintln!("{e:?}");
+                e
+            })
             .ok()?
             .data
             .list
@@ -651,7 +661,6 @@ async fn structures_by_ids(ids: &[u32]) -> Option<BTreeMap<u32, Structure>> {
     let response = client.execute(request).await.ok()?;
     #[derive(Deserialize)]
     struct StructureList {
-        #[serde(rename = "licenses")]
         list: Vec<Structure>,
     }
     #[derive(Deserialize)]
@@ -660,6 +669,7 @@ async fn structures_by_ids(ids: &[u32]) -> Option<BTreeMap<u32, Structure>> {
     }
     #[cfg(test)]
     let structures = {
+        println!("structures");
         println!("POST {}", url.as_str());
         println!("{}", response.status());
         let text = response.text().await.ok()?;
@@ -675,6 +685,10 @@ async fn structures_by_ids(ids: &[u32]) -> Option<BTreeMap<u32, Structure>> {
             .await
             .unwrap();
         serde_json::from_str::<GraphqlResponse>(&text)
+            .map_err(|e| {
+                eprintln!("{e:?}");
+                e
+            })
             .ok()?
             .data
             .list
@@ -767,7 +781,7 @@ pub async fn update_address(user_id: &str, zip_code: &str, city: &City) -> Optio
 }
 
 impl TryFrom<&str> for LicenseType {
-    type Error = &'static str;
+    type Error = String;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         match value {
@@ -788,23 +802,24 @@ impl TryFrom<&str> for LicenseType {
             }
             "non_practicing_adult" => Ok(LicenseType::NonPracticingAdult),
             "non_practicing_child" => Ok(LicenseType::NonPracticingChild),
-            _ => Err("unknown license type"),
+            other => Err(format!("unknown license type: {other}")),
         }
     }
 }
 
 impl TryFrom<&str> for MedicalCertificateStatus {
-    type Error = &'static str;
+    type Error = String;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         match value {
             "recreational" | "loisir" => Ok(MedicalCertificateStatus::Recreational),
             "competition" => Ok(MedicalCertificateStatus::Competition),
-            "waiting_for_document" | "waiting_document" => {
+            "waiting_for_document" | "waiting_document" | "waiting_validation" => {
                 Ok(MedicalCertificateStatus::WaitingForDocument)
             }
             "health_questionnaire" | "qs" => Ok(MedicalCertificateStatus::HealthQuestionnaire),
-            _ => Err("unknown medical certificate status"),
+            "validate" => Ok(MedicalCertificateStatus::HealthQuestionnaire), // TODO
+            other => Err(format!("unknown medical certificate status: {}", other)),
         }
     }
 }
@@ -1016,7 +1031,7 @@ const GRAPHQL_GET_ADDRESSES_BY_USER_IDS: &str = "\
 ";
 
 const GRAPHQL_GET_LICENSES_BY_USER_IDS: &str = "\
-    query getLicencesByUserIds(
+    query getLicensesByUserIds(
         $ids: [uuid!]!
     ) {
         list: licence(
@@ -1035,7 +1050,7 @@ const GRAPHQL_GET_LICENSES_BY_USER_IDS: &str = "\
 ";
 
 const GRAPHQL_GET_STRUCTURES_BY_IDS: &str = "\
-    query getStructuresById($ids: [Int!]!) {
+    query getStructuresByIds($ids: [Int!]!) {
         list: structure(
             where: { id: { _in: $ids } }
         ) {
@@ -1143,26 +1158,26 @@ mod tests {
         println!("{}", serde_json::to_string(result).unwrap())
     }
 
-    // #[tokio::test]
-    // async fn test_list() {
-    //     assert!(update_bearer_token(0).await.is_some());
-    //     let t0 = SystemTime::now();
-    //     let results = current_licensees().await.unwrap();
-    //     let elapsed = t0.elapsed().unwrap();
-    //     println!("{elapsed:?}");
-    //     assert!(!results.is_empty());
-    //     println!("{}", results.len());
-    //     println!("{}", serde_json::to_string(&results).unwrap());
-    //     tokio::fs::OpenOptions::new()
-    //         .write(true)
-    //         .truncate(true)
-    //         .create(true)
-    //         .open(".list.json")
-    //         .await
-    //         .ok()
-    //         .unwrap()
-    //         .write_all(serde_json::to_string(&results).unwrap().as_bytes())
-    //         .await
-    //         .unwrap();
-    // }
+    #[tokio::test]
+    async fn test_list() {
+        assert!(update_bearer_token(0).await.is_some());
+        let t0 = SystemTime::now();
+        let results = members_by_structure(10).await.unwrap();
+        let elapsed = t0.elapsed().unwrap();
+        println!("{elapsed:?}");
+        assert!(!results.is_empty());
+        println!("{}", results.len());
+        println!("{}", serde_json::to_string(&results).unwrap());
+        tokio::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .create(true)
+            .open(".list.json")
+            .await
+            .ok()
+            .unwrap()
+            .write_all(serde_json::to_string(&results).unwrap().as_bytes())
+            .await
+            .unwrap();
+    }
 }
