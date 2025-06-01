@@ -34,7 +34,7 @@ default-features = false
 features = ["std"]
 
 [dependencies.tokio]
-version = "1.44"
+version = "1.45"
 default-features = false
 features = ["rt", "rt-multi-thread"]
 
@@ -68,7 +68,7 @@ default-features = false
 features = ["std", "preserve_order"]
 
 [dependencies.zip_static_handler]
-version = "0.16"
+version = "0.18"
 default-features = false
 features = ["hyper"]
 

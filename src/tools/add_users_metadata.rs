@@ -1,4 +1,4 @@
-use pierre_blanche_server::myffme::{search, update_bearer_token};
+use pierre_blanche_server::myffme::{licensee, update_bearer_token};
 use pierre_blanche_server::user::Metadata;
 use tiered_server::norm::{normalize_first_name, normalize_last_name};
 use tiered_server::store::{snapshot, Snapshot};
@@ -14,8 +14,9 @@ async fn main() {
             .metadata
             .map(|it| serde_json::from_value(it).expect("failed to deserialize metadata"))
             .unwrap_or(Metadata::default());
-        let results = search(
-            Some(&format!("{} {}", user.first_name, user.last_name)),
+        let results = licensee(
+            Some(&user.first_name),
+            Some(&user.last_name),
             Some(user.date_of_birth),
             metadata.license_number,
         )
@@ -27,9 +28,9 @@ async fn main() {
         let normalized_last_name = normalize_last_name(&user.last_name);
         let normalized_first_name = normalize_last_name(&user.first_name);
         let mut iter = results.into_iter().filter(|it| {
-            normalize_last_name(&it.licensee.last_name) == normalized_last_name
-                && normalize_first_name(&it.licensee.first_name) == normalized_first_name
-                && it.licensee.dob == user.date_of_birth
+            normalize_last_name(&it.last_name) == normalized_last_name
+                && normalize_first_name(&it.first_name) == normalized_first_name
+                && it.dob == user.date_of_birth
         });
         let first = iter.next().expect(&format!(
             "failed to find user: {} {}",
@@ -41,13 +42,13 @@ async fn main() {
             user.first_name,
             user.last_name
         );
-        if metadata.license_number != Some(first.licensee.license_number)
+        if metadata.license_number != Some(first.license_number)
             || metadata.latest_license_season != first.latest_license_season
-            || metadata.myffme_user_id.as_deref() != Some(&first.licensee.id)
+            || metadata.myffme_user_id.as_deref() != Some(&first.id)
         {
-            metadata.license_number = Some(first.licensee.license_number);
+            metadata.license_number = Some(first.license_number);
             metadata.latest_license_season = first.latest_license_season;
-            metadata.myffme_user_id = Some(first.licensee.id);
+            metadata.myffme_user_id = Some(first.id);
             user.metadata =
                 Some(serde_json::to_value(metadata).expect("failed to serialize metadata"));
             updates.push((key, user));

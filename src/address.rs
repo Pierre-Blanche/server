@@ -1,8 +1,6 @@
 use crate::chrome::CHROME_VERSION;
 use crate::myffme::Address;
-use hyper::header::{
-    HeaderName, HeaderValue, ACCEPT, AUTHORIZATION, CONTENT_TYPE, ORIGIN, REFERER,
-};
+use hyper::header::{HeaderName, HeaderValue, ACCEPT, CONTENT_TYPE};
 use hyper::HeaderMap;
 use reqwest::redirect::Policy;
 use reqwest::tls::Version;

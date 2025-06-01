@@ -1,5 +1,5 @@
 use pierre_blanche_server::address::cities_by_zip_code;
-use pierre_blanche_server::myffme::{search, update_address, update_bearer_token};
+use pierre_blanche_server::myffme::{licensee, update_address, update_bearer_token};
 use tiered_server::norm::normalize_city;
 
 #[tokio::main]
@@ -16,21 +16,21 @@ async fn update_address_for_user_by_license_number(
             .await
             .expect("failed to get bearer token")
     );
-    let user = search(None, None, Some(license_number))
+    let user = licensee(None, None, None, Some(license_number))
         .await
         .expect("failed to search for user");
     let normalized_city_name = normalize_city(city_name);
     let mut iter = user.into_iter();
     let user = iter.next().expect("failed to find user");
     assert!(iter.next().is_none(), "found more than one user");
-    println!("user id: {}", user.licensee.id);
+    println!("user id: {}", user.id);
     let city = cities_by_zip_code(zip_code)
         .await
         .expect("failed to search for city")
         .into_iter()
         .find(|it| normalize_city(&it.name) == normalized_city_name)
         .expect("failed to find city");
-    update_address(&user.licensee.id, zip_code, &city).await
+    update_address(&user.id, zip_code, &city).await
 }
 
 #[cfg(test)]

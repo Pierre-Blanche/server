@@ -1,29 +1,27 @@
 use crate::address::City;
 use crate::chrome::{ChromeVersion, CHROME_VERSION};
-use http_body_util::BodyExt;
+use crate::user::{Gender, LicenseType, MedicalCertificateStatus, Metadata, Structure};
 use hyper::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, ORIGIN, REFERER};
 use hyper::http::{HeaderName, HeaderValue};
 use pinboard::Pinboard;
 use reqwest::header::HeaderMap;
 use reqwest::redirect::Policy;
 use reqwest::tls::Version;
-use reqwest::{Client, Url};
+use reqwest::{Client, Response, Url};
 use serde::de::Error;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::collections::BTreeMap;
-use std::fs::metadata;
+use std::collections::{BTreeMap, BTreeSet};
+use std::str::from_utf8;
 use std::sync::LazyLock;
 use std::thread;
-use std::thread::current;
 use std::time::{Duration, SystemTime};
 use tiered_server::env::{secret_value, ConfigurationKey};
 use tiered_server::headers::JSON;
 use tiered_server::norm::{normalize_first_name, normalize_last_name};
-use tiered_server::store::Snapshot;
 use tokio::io::AsyncWriteExt;
 use tokio::time::sleep;
-use tracing::{debug, info, warn};
+use tracing::debug;
 
 pub async fn ffme_auth_update_loop() {
     let timestamp = SystemTime::now()
@@ -215,7 +213,7 @@ pub async fn update_bearer_token(timestamp: u32) -> Option<String> {
 
 const APPROXIMATE_NUMBER_OF_SECS_IN_YEAR: u32 = 31_557_600;
 
-fn current_season(timestamp: Option<u32>) -> u16 {
+pub fn current_season(timestamp: Option<u32>) -> u16 {
     let year_2020_utc_start_timestamp = 1577836800_u32;
     let elapsed = timestamp.unwrap_or_else(|| {
         SystemTime::now()
@@ -239,290 +237,260 @@ fn current_season(timestamp: Option<u32>) -> u16 {
     }
 }
 
-#[derive(Default)]
-struct LicenseeLatestLicense {
-    pub structure_name: Option<String>,
-    pub season: Option<u16>,
+#[derive(Deserialize, Serialize)]
+pub struct Member {
+    pub first_name: String,
+    pub last_name: String,
+    pub email: String,
+    pub dob: u32,
+    pub metadata: Metadata,
 }
 
-#[derive(Default)]
-struct LicenseTypeAndMedicalCertificateStatus {
-    pub license_type: Option<LicenseType>,
-    pub medical_certificate_status: Option<MedicalCertificateStatus>,
+pub async fn member_by_name_and_dob(
+    first_name: &str,
+    last_name: &str,
+    dob: u32,
+) -> Option<Vec<Member>> {
+    let response = users_response_by_dob(dob).await?;
+    let mut results = users_response_to_members(response).await?;
+    let normalized_first_name = normalize_first_name(first_name);
+    let normalized_last_name = normalize_last_name(last_name);
+
+    if results.len() > 1 {
+        let found = results
+            .iter()
+            .filter_map(|it| {
+                if let Some(license_number) = it.metadata.license_number {
+                    if normalize_first_name(&it.first_name) == normalized_first_name {
+                        return Some(license_number);
+                    }
+                }
+                None
+            })
+            .collect::<BTreeSet<_>>();
+        if !found.is_empty() {
+            results.retain(|it| {
+                if let Some(license_number) = it.metadata.license_number {
+                    found.contains(&license_number)
+                } else {
+                    false
+                }
+            });
+        }
+        let found = results
+            .iter()
+            .filter_map(|it| {
+                if let Some(license_number) = it.metadata.license_number {
+                    if normalize_first_name(&it.last_name) == normalized_last_name {
+                        return Some(license_number);
+                    }
+                }
+                None
+            })
+            .collect::<BTreeSet<_>>();
+        if !found.is_empty() {
+            results.retain(|it| {
+                if let Some(license_number) = it.metadata.license_number {
+                    found.contains(&license_number)
+                } else {
+                    false
+                }
+            });
+        }
+    }
+    Some(results)
 }
 
-pub async fn licensee(
-    first_name: Option<&str>,
-    last_name: Option<&str>,
-    dob: Option<u32>,
-    license_number: Option<u32>,
-) -> Option<Vec<Licensee>> {
-    #[derive(Deserialize)]
-    pub(crate) struct SearchResult {
-        #[serde(rename = "fullname")]
-        pub(crate) name: String,
-        #[serde(rename = "birthdate", deserialize_with = "deserialize_date")]
-        pub(crate) dob: u32,
-        #[serde(
-            rename = "licenceNumber",
-            deserialize_with = "deserialize_license_number"
-        )]
-        pub(crate) license_number: u32,
-        #[serde(rename = "season")]
-        pub(crate) latest_license_season: Option<u16>,
-        #[serde(rename = "structure")]
-        pub(crate) latest_structure_name: Option<String>,
+pub async fn member_by_license_number(license_number: u32) -> Option<Member> {
+    let response = users_response_by_license_numbers(&[license_number]).await?;
+    let mut iter = users_response_to_members(response).await?.into_iter();
+    let first = iter.next()?;
+    if iter.next().is_some() {
+        None
+    } else {
+        Some(first)
     }
-    let mut url = Url::parse("https://api.core.myffme.fr/api/users/licensee/search").unwrap();
-    let mut query = url.query_pairs_mut();
-    query.append_pair("page", "1");
-    query.append_pair("itemsPerPage", "100");
-    let names = [first_name, last_name]
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>();
-    if !names.is_empty() {
-        query.append_pair("input", &names.join(" "));
-    }
-    if let Some(dob) = dob {
-        let s = dob.to_string();
-        query.append_pair(
-            "birthdate",
-            &format!("{}-{}-{}", &s[0..4], &s[4..6], &s[6..8]),
-        );
-    }
-    if let Some(license_number) = license_number {
-        query.append_pair("licenceNumber", &format!("{}", license_number));
-    }
-    drop(query);
-    debug!("GET {}", url.as_str());
+}
+
+pub async fn members_by_structure(structure_id: u32) -> Option<Vec<Member>> {
+    let response = users_response_by_structure(structure_id).await?;
+    users_response_to_members(response).await
+}
+
+async fn users_response_by_license_numbers(license_numbers: &[u32]) -> Option<Response> {
+    let url = Url::parse("https://back-prod.core.myffme.fr/v1/graphql").unwrap();
     let client = client();
     let request = client
-        .get(url.as_str())
-        .header(ORIGIN, HeaderValue::from_static("https://app.myffme.fr"))
-        .header(REFERER, HeaderValue::from_static("https://app.myffme.fr/"))
+        .post(url.as_str())
+        .header(ORIGIN, HeaderValue::from_static("https://www.myffme.fr"))
+        .header(REFERER, HeaderValue::from_static("https://www.myffme.fr/"))
+        .header(X_HASURA_ROLE, ADMIN)
         .header(
             AUTHORIZATION,
             MYFFME_AUTHORIZATION
                 .get_ref()
                 .map(|it| it.bearer_token.clone())?,
         )
+        .json(&json!({
+            "operationName": "getUsersByLicenseNumbers",
+            "query": GRAPHQL_GET_USERS_BY_LICENSE_NUMBERS,
+            "variables": {
+                "license_numbers": license_numbers
+            }
+        }))
         .build()
         .ok()?;
-    let response = client.execute(request).await.ok()?;
+    client.execute(request).await.ok()
+}
+
+async fn users_response_by_ids(ids: &[&str]) -> Option<Response> {
+    let url = Url::parse("https://back-prod.core.myffme.fr/v1/graphql").unwrap();
+    let client = client();
+    let request = client
+        .post(url.as_str())
+        .header(ORIGIN, HeaderValue::from_static("https://www.myffme.fr"))
+        .header(REFERER, HeaderValue::from_static("https://www.myffme.fr/"))
+        .header(X_HASURA_ROLE, ADMIN)
+        .header(
+            AUTHORIZATION,
+            MYFFME_AUTHORIZATION
+                .get_ref()
+                .map(|it| it.bearer_token.clone())?,
+        )
+        .json(&json!({
+            "operationName": "getUsersByUserIds",
+            "query": GRAPHQL_GET_USERS_BY_IDS,
+            "variables": {
+                "ids": ids
+            }
+        }))
+        .build()
+        .ok()?;
+    client.execute(request).await.ok()
+}
+
+async fn users_response_by_structure(structure_id: u32) -> Option<Response> {
+    let url = Url::parse("https://back-prod.core.myffme.fr/v1/graphql").unwrap();
+    let client = client();
+    let request = client
+        .post(url.as_str())
+        .header(ORIGIN, HeaderValue::from_static("https://www.myffme.fr"))
+        .header(REFERER, HeaderValue::from_static("https://www.myffme.fr/"))
+        .header(X_HASURA_ROLE, ADMIN)
+        .header(
+            AUTHORIZATION,
+            MYFFME_AUTHORIZATION
+                .get_ref()
+                .map(|it| it.bearer_token.clone())?,
+        )
+        .json(&json!({
+            "operationName": "getUsersByStructureId",
+            "query": GRAPHQL_GET_USERS_BY_STRUCTURE_ID,
+            "variables": {
+                "id": structure_id
+            }
+        }))
+        .build()
+        .ok()?;
+    client.execute(request).await.ok()
+}
+
+async fn users_response_by_dob(dob: u32) -> Option<Response> {
+    let s = dob.to_string();
+    let dob = s.as_bytes();
+    let yyyy = from_utf8(&dob[..4]).unwrap();
+    let mm = from_utf8(&dob[4..6]).unwrap();
+    let dd = from_utf8(&dob[6..]).unwrap();
+    let dob = format!("{yyyy}-{mm}-{dd}");
+    let url = Url::parse("https://back-prod.core.myffme.fr/v1/graphql").unwrap();
+    let client = client();
+    let request = client
+        .post(url.as_str())
+        .header(ORIGIN, HeaderValue::from_static("https://www.myffme.fr"))
+        .header(REFERER, HeaderValue::from_static("https://www.myffme.fr/"))
+        .header(X_HASURA_ROLE, ADMIN)
+        .header(
+            AUTHORIZATION,
+            MYFFME_AUTHORIZATION
+                .get_ref()
+                .map(|it| it.bearer_token.clone())?,
+        )
+        .json(&json!({
+            "operationName": "getUsersByDateOfBirth",
+            "query": GRAPHQL_GET_USERS_BY_DATE_OF_BIRTH,
+            "variables": {
+                "dob": dob
+            }
+        }))
+        .build()
+        .ok()?;
+    client.execute(request).await.ok()
+}
+
+async fn users_response_to_members(response: Response) -> Option<Vec<Member>> {
     #[cfg(test)]
-    let search_results = {
-        println!("GET {}", url.as_str());
+    let users = {
         println!("{}", response.status());
         let text = response.text().await.ok()?;
-        let mut file_name = ".search".to_string();
-        if let Some(name) = first_name {
-            file_name.push('_');
-            file_name.push_str(name);
-        }
-        if let Some(name) = last_name {
-            file_name.push('_');
-            file_name.push_str(name);
-        }
-        if let Some(dob) = dob {
-            file_name.push('_');
-            file_name.push_str(dob.to_string().as_str());
-        }
-        file_name.push_str(".json");
+        let file_name = ".users.json";
         tokio::fs::OpenOptions::new()
             .write(true)
             .truncate(true)
             .create(true)
-            .open(&file_name)
+            .open(file_name)
             .await
             .ok()?
             .write_all(text.as_bytes())
             .await
             .unwrap();
-        serde_json::from_str::<Vec<SearchResult>>(&text).ok()?
+        serde_json::from_str::<GraphqlResponse>(&text)
+            .ok()?
+            .data
+            .list
     };
     #[cfg(not(test))]
-    let search_results = response.json::<Vec<SearchResult>>().await.ok()?;
-    let mut metadata = search_results
-        .iter()
-        .filter(|it| {
-            if let Some(license_number) = license_number {
-                if it.license_number != license_number {
-                    return false;
-                }
-            }
-            if let Some(dob) = dob {
-                if it.dob != dob {
-                    return false;
-                }
-            }
-            true
-        })
-        .map(|it| {
-            (
-                it.license_number,
-                LicenseeLatestLicense {
-                    season: it.latest_license_season,
-                    structure_name: it.latest_structure_name,
-                },
-            )
-        })
-        .collect::<BTreeMap<_, _>>();
-    if metadata.len() > 1 {
-        if let Some(first_name) = first_name {
-            let normalized_first_name = normalize_first_name(first_name);
-            let found = search_results
-                .iter()
-                .filter_map(|it| {
-                    if metadata.contains_key(&it.license_number)
-                        && normalize_first_name(&it.name).starts_with(&normalized_first_name)
-                    {
-                        Some(it.license_number)
-                    } else {
-                        None
-                    }
-                })
-                .collect::<Vec<_>>();
-            if !found.is_empty() {
-                metadata.retain(|it, _| !found.contains(it));
-            }
-            if let Some(last_name) = last_name {
-                let normalized_last_name = normalize_last_name(last_name);
-                let found = search_results
-                    .iter()
-                    .filter_map(|it| {
-                        if metadata.contains_key(&it.license_number)
-                            && normalize_last_name(&it.name).ends_with(&normalized_last_name)
-                        {
-                            Some(it.license_number)
-                        } else {
-                            None
-                        }
-                    })
-                    .collect::<Vec<_>>();
-                if !found.is_empty() {
-                    metadata.retain(|it, _| !found.contains(it));
-                }
-            }
-        }
-    }
-    if metadata.is_empty() {
-        return Some(vec![]);
-    }
-    #[derive(Deserialize)]
-    struct User {
-        id: String,
-        #[serde(
-            deserialize_with = "deserialize_license_number",
-            rename = "licenceNumero"
-        )]
-        license_number: u32,
-    }
-    #[derive(Deserialize)]
-    struct Season {
-        id: u16,
-    }
-    #[derive(Deserialize)]
-    struct Product {
-        #[serde(
-            default,
-            deserialize_with = "deserialize_license_type",
-            skip_serializing_if = "Option::is_none",
-            rename = "slug"
-        )]
-        license_type: Option<LicenseType>,
-    }
-    #[derive(Deserialize)]
-    struct Result {
-        #[serde(
-            default,
-            deserialize_with = "deserialize_medical_certificate_status",
-            skip_serializing_if = "Option::is_none"
-        )]
-        status: Option<MedicalCertificateStatus>,
-        user: User,
-        product: Option<Product>,
-    }
-    let current_season = current_season(None);
-    let mut current_year_metadata = BTreeMap::new();
-    for (license_number, last_license) in metadata.iter() {
-        if last_license.season != Some(current_season) {
-            continue;
-        }
-        let mut url = Url::parse("https://api.core.myffme.fr/api/licences").unwrap();
-        let mut query = url.query_pairs_mut();
-        query.append_pair("page", "1");
-        query.append_pair("itemsPerPage", "1");
-        query.append_pair("user.licenceNumero", &format!("{}", license_number));
-        query.append_pair("order[season.id]", "desc");
-        drop(query);
-        let mut url = Url::parse("https://api.core.myffme.fr/api/licences").unwrap();
-        let mut query = url.query_pairs_mut();
-        query.append_pair("page", "1");
-        query.append_pair("itemsPerPage", "1");
-        query.append_pair("user.licenceNumero", &format!("{}", license_number));
-        query.append_pair("season", &format!("{}", current_season));
-        // query.append_pair("order[season.id]", "desc");
-        drop(query);
-        debug!("GET {}", url.as_str());
-        let request = client
-            .get(url.as_str())
-            .header(ORIGIN, HeaderValue::from_static("https://app.myffme.fr"))
-            .header(REFERER, HeaderValue::from_static("https://app.myffme.fr/"))
-            .header(
-                AUTHORIZATION,
-                MYFFME_AUTHORIZATION
-                    .get_ref()
-                    .map(|it| it.bearer_token.clone())?,
-            )
-            .build()
-            .ok()?;
-        let response = client.execute(request).await.ok()?;
-        #[cfg(test)]
-        let result = {
-            println!("GET {}", url.as_str());
-            println!("{}", response.status());
-            let text = response.text().await.ok()?;
-            let file_name = format!(".license_{license_number}.json");
-            tokio::fs::OpenOptions::new()
-                .write(true)
-                .truncate(true)
-                .create(true)
-                .open(&file_name)
-                .await
-                .ok()?
-                .write_all(text.as_bytes())
-                .await
-                .unwrap();
-            serde_json::from_str::<Vec<Result>>(&text)
-                .map_err(|err| {
-                    let s = format!("{err:?}");
-                    println!("{s}");
-                    s
-                })
-                .ok()?
-                .into_iter()
-                .next()?
-        };
-        #[cfg(not(test))]
-        let result = response
-            .json::<Vec<Result>>()
-            .await
-            .ok()?
+    let users = response.json::<GraphqlResponse>().await.ok()?.data.list;
+    let user_ids = users.iter().map(|it| it.id.as_str()).collect::<Vec<_>>();
+    let mut addresses = user_addresses(&user_ids).await?;
+    let mut licenses = user_licenses(&user_ids).await?;
+    let structure_ids = licenses
+        .values()
+        .map(|it| it.structure_id)
+        .collect::<Vec<_>>();
+    let structures = structures_by_ids(&structure_ids).await?;
+    Some(
+        users
             .into_iter()
-            .next()?;
-        current_year_metadata.insert(
-            result.user.id,
-            LicenseTypeAndMedicalCertificateStatus {
-                license_type: result.product.and_then(|it| it.license_type),
-                medical_certificate_status: result.status,
-            },
-        );
-    }
-    licensees_from_license_numbers(metadata, current_year_metadata).await
+            .map(|it| {
+                let license = licenses.remove(&it.id);
+                let address = addresses.remove(&it.id);
+                let latest_structure = license
+                    .as_ref()
+                    .and_then(|it| structures.get(&it.structure_id).cloned());
+                let latest_license_season = license.as_ref().map(|it| it.season);
+                let (license_type, medical_certificate_status) = license
+                    .map(|it| (it.license_type, it.medical_certificate_status))
+                    .unwrap_or((None, None));
+                Member {
+                    first_name: it.first_name,
+                    last_name: it.last_name,
+                    email: it.email.unwrap_or(it.alt_email.unwrap()),
+                    dob: it.dob,
+                    metadata: Metadata {
+                        myffme_user_id: Some(it.id),
+                        license_number: Some(it.license_number),
+                        gender: Some(it.gender),
+                        insee: address.and_then(|it| it.insee),
+                        license_type,
+                        medical_certificate_status,
+                        latest_license_season,
+                        latest_structure,
+                    },
+                }
+            })
+            .collect(),
+    )
 }
-
-pub async fn licensees(structure: u32) -> Option<Vec<Licensee>> {}
 
 pub async fn user_addresses(ids: &[&str]) -> Option<BTreeMap<String, Address>> {
     let url = Url::parse("https://back-prod.core.myffme.fr/v1/graphql").unwrap();
@@ -550,7 +518,6 @@ pub async fn user_addresses(ids: &[&str]) -> Option<BTreeMap<String, Address>> {
     let response = client.execute(request).await.ok()?;
     #[derive(Deserialize)]
     struct AddressList {
-        #[serde(rename = "ADR_Adresse")]
         list: Vec<Address>,
     }
     #[derive(Deserialize)]
@@ -591,51 +558,45 @@ pub async fn user_addresses(ids: &[&str]) -> Option<BTreeMap<String, Address>> {
     )
 }
 
-async fn structure_current_year_metadata(
-    structure: u32,
-) -> Option<BTreeMap<String, LicenseTypeAndMedicalCertificateStatus>> {
-    #[derive(Deserialize)]
-    struct User {
-        id: String,
-    }
-    #[derive(Deserialize)]
-    struct Product {
-        slug: String,
-    }
-    #[derive(Deserialize)]
-    struct License {
-        user: User,
-        product: Product,
-        status: String,
-    }
-    let mut url = Url::parse("https://api.core.myffme.fr/api/licences").unwrap();
-    let mut query = url.query_pairs_mut();
-    query.append_pair("page", "1");
-    query.append_pair("itemsPerPage", "1000");
-    query.append_pair("structure", "10");
-    query.append_pair("season", season.to_string().as_str());
-    drop(query);
-    debug!("GET {}", url.as_str());
+async fn user_licenses(ids: &[&str]) -> Option<BTreeMap<String, License>> {
+    let url = Url::parse("https://back-prod.core.myffme.fr/v1/graphql").unwrap();
     let client = client();
     let request = client
-        .get(url.as_str())
-        .header(ORIGIN, HeaderValue::from_static("https://app.myffme.fr"))
-        .header(REFERER, HeaderValue::from_static("https://app.myffme.fr/"))
+        .post(url.as_str())
+        .header(ORIGIN, HeaderValue::from_static("https://www.myffme.fr"))
+        .header(REFERER, HeaderValue::from_static("https://www.myffme.fr/"))
+        .header(X_HASURA_ROLE, ADMIN)
         .header(
             AUTHORIZATION,
             MYFFME_AUTHORIZATION
                 .get_ref()
                 .map(|it| it.bearer_token.clone())?,
         )
+        .json(&json!({
+            "operationName": "getLicensesByUserIds",
+            "query": GRAPHQL_GET_LICENSES_BY_USER_IDS,
+            "variables": {
+                "ids": ids,
+            }
+        }))
         .build()
         .ok()?;
     let response = client.execute(request).await.ok()?;
+    #[derive(Deserialize)]
+    struct LicenseList {
+        #[serde(rename = "licenses")]
+        list: Vec<License>,
+    }
+    #[derive(Deserialize)]
+    struct GraphqlResponse {
+        data: LicenseList,
+    }
     #[cfg(test)]
     let licenses = {
-        println!("GET {}", url.as_str());
+        println!("POST {}", url.as_str());
         println!("{}", response.status());
         let text = response.text().await.ok()?;
-        let file_name = format!(".users_metadata_{season}.json");
+        let file_name = format!(".licenses.json");
         tokio::fs::OpenOptions::new()
             .write(true)
             .truncate(true)
@@ -646,127 +607,25 @@ async fn structure_current_year_metadata(
             .write_all(text.as_bytes())
             .await
             .unwrap();
-        serde_json::from_str::<Vec<License>>(&text).ok()?
-    };
-    #[cfg(not(test))]
-    let licenses = response.json::<Vec<License>>().await.ok()?;
-    Some(
-        licenses
-            .into_iter()
-            .map(|it| {
-                (
-                    it.user.id,
-                    UserMetadata {
-                        medical_certificate_status: it.status.as_str().try_into().ok(),
-                        license_type: it.product.slug.as_str().try_into().ok(),
-                    },
-                )
-            })
-            .collect::<BTreeMap<_, _>>(),
-    )
-}
-
-async fn licensees_from_ids(
-    mut metadata: BTreeMap<String, LicenseeLatestLicense>,
-    mut current_year_metadata: BTreeMap<String, LicenseTypeAndMedicalCertificateStatus>,
-) -> Option<Vec<Licensee>> {
-    let ids = metadata.keys().map(|it| it.as_str()).collect::<Vec<_>>();
-    let mut addresses = user_addresses(&ids).await?;
-    let url = Url::parse("https://back-prod.core.myffme.fr/v1/graphql").unwrap();
-    let client = client();
-    let request = client
-        .post(url.as_str())
-        .header(ORIGIN, HeaderValue::from_static("https://www.myffme.fr"))
-        .header(REFERER, HeaderValue::from_static("https://www.myffme.fr/"))
-        .header(X_HASURA_ROLE, ADMIN)
-        .header(
-            AUTHORIZATION,
-            MYFFME_AUTHORIZATION
-                .get_ref()
-                .map(|it| it.bearer_token.clone())?,
-        )
-        .json(&json!({
-            "operationName": "getUsersByIds",
-            "query": GRAPHQL_GET_USERS_BY_IDS,
-            "variables": {
-                "ids": &ids,
-            }
-        }))
-        .build()
-        .ok()?;
-    let response = client.execute(request).await.ok()?;
-    #[cfg(test)]
-    let users = {
-        println!("POST {}", url.as_str());
-        println!("{}", response.status());
-        let text = response.text().await.ok()?;
-        let file_name = ".users.json";
-        tokio::fs::OpenOptions::new()
-            .write(true)
-            .truncate(true)
-            .create(true)
-            .open(file_name)
-            .await
-            .ok()?
-            .write_all(text.as_bytes())
-            .await
-            .unwrap();
         serde_json::from_str::<GraphqlResponse>(&text)
             .ok()?
             .data
             .list
     };
     #[cfg(not(test))]
-    let users = response.json::<GraphqlResponse>().await.ok()?.data.list;
+    let licenses = response.json::<GraphqlResponse>().await.ok()?.data.list;
     Some(
-        users
+        licenses
             .into_iter()
-            .map(|mut it| {
-                let address = addresses.remove(&it.id);
-                let LicenseeLatestLicense {
-                    season,
-                    structure_name,
-                } = metadata.remove(&it.id).unwrap_or_default();
-                let LicenseTypeAndMedicalCertificateStatus {
-                    license_type,
-                    medical_certificate_status,
-                } = current_year_metadata.remove(&it.id).unwrap_or_default();
-                Licensee {
-                    id: it.id,
-                    gender: it.gender,
-                    first_name: it.first_name,
-                    last_name: it.last_name,
-                    birth_name: it.birth_name,
-                    dob: it.dob,
-                    email: it.email,
-                    alt_email: it.alt_email,
-                    phone_number: it.phone_number,
-                    alt_phone_number: it.alt_phone_number,
-                    license_number: it.license_number,
-                    address,
-                    license_type,
-                    medical_certificate_status,
-                    latest_license_season: season,
-                    latest_structure: it.structures.and_then(|list| {
-                        list.into_iter().find(|it| {
-                            if let Some(ref structure_name) = structure_name {
-                                &it.name == structure_name
-                            } else {
-                                false
-                            }
-                        })
-                    }),
-                }
+            .map(|mut license| {
+                let id = license.user_id.take().unwrap();
+                (id, license)
             })
             .collect(),
     )
 }
 
-async fn licensees_from_license_numbers(
-    mut metadata: BTreeMap<u32, LicenseeLatestLicense>,
-    mut current_year_metadata: BTreeMap<String, LicenseTypeAndMedicalCertificateStatus>,
-) -> Option<Vec<Licensee>> {
-    let license_numbers = metadata.keys().copied().collect::<Vec<_>>();
+async fn structures_by_ids(ids: &[u32]) -> Option<BTreeMap<u32, Structure>> {
     let url = Url::parse("https://back-prod.core.myffme.fr/v1/graphql").unwrap();
     let client = client();
     let request = client
@@ -781,26 +640,35 @@ async fn licensees_from_license_numbers(
                 .map(|it| it.bearer_token.clone())?,
         )
         .json(&json!({
-            "operationName": "getUsersByLicenseNumbers",
-            "query": GRAPHQL_GET_USERS_BY_LICENSE_NUMBER,
+            "operationName": "getStructuresByIds",
+            "query": GRAPHQL_GET_STRUCTURES_BY_IDS,
             "variables": {
-                "license_numbers": &license_numbers,
+                "ids": ids,
             }
         }))
         .build()
         .ok()?;
     let response = client.execute(request).await.ok()?;
+    #[derive(Deserialize)]
+    struct StructureList {
+        #[serde(rename = "licenses")]
+        list: Vec<Structure>,
+    }
+    #[derive(Deserialize)]
+    struct GraphqlResponse {
+        data: StructureList,
+    }
     #[cfg(test)]
-    let users = {
+    let structures = {
         println!("POST {}", url.as_str());
         println!("{}", response.status());
         let text = response.text().await.ok()?;
-        let file_name = ".users.json";
+        let file_name = format!(".structures.json");
         tokio::fs::OpenOptions::new()
             .write(true)
             .truncate(true)
             .create(true)
-            .open(file_name)
+            .open(&file_name)
             .await
             .ok()?
             .write_all(text.as_bytes())
@@ -812,48 +680,13 @@ async fn licensees_from_license_numbers(
             .list
     };
     #[cfg(not(test))]
-    let users = response.json::<GraphqlResponse>().await.ok()?.data.list;
-    let ids = users.iter().map(|it| it.id.as_str()).collect::<Vec<_>>();
-    let mut addresses = user_addresses(&ids).await?;
+    let structures = response.json::<GraphqlResponse>().await.ok()?.data.list;
     Some(
-        users
+        structures
             .into_iter()
-            .map(|mut it| {
-                let address = addresses.remove(&it.id);
-                let LicenseeLatestLicense {
-                    season,
-                    structure_name,
-                } = metadata.remove(&it.license_number).unwrap_or_default();
-                let LicenseTypeAndMedicalCertificateStatus {
-                    license_type,
-                    medical_certificate_status,
-                } = current_year_metadata.remove(&it.id).unwrap_or_default();
-                Licensee {
-                    id: it.id,
-                    gender: it.gender,
-                    first_name: it.first_name,
-                    last_name: it.last_name,
-                    birth_name: it.birth_name,
-                    dob: it.dob,
-                    email: it.email,
-                    alt_email: it.alt_email,
-                    phone_number: it.phone_number,
-                    alt_phone_number: it.alt_phone_number,
-                    license_number: it.license_number,
-                    address,
-                    license_type,
-                    medical_certificate_status,
-                    latest_license_season: season,
-                    latest_structure: it.structures.and_then(|list| {
-                        list.into_iter().find(|it| {
-                            if let Some(ref structure_name) = structure_name {
-                                &it.name == structure_name
-                            } else {
-                                false
-                            }
-                        })
-                    }),
-                }
+            .map(|structure| {
+                let id = structure.id;
+                (id, structure)
             })
             .collect(),
     )
@@ -866,25 +699,18 @@ struct User {
     pub gender: Gender,
     pub first_name: String,
     pub last_name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub birth_name: Option<String>,
+    // pub birth_name: Option<String>,
     #[serde(deserialize_with = "deserialize_date")]
     pub dob: u32,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub email: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub alt_email: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub phone_number: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub alt_phone_number: Option<String>,
+    // pub phone_number: Option<String>,
+    // pub alt_phone_number: Option<String>,
     pub license_number: u32,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub structures: Option<Vec<Structure>>,
+    pub non_practicing: Option<bool>,
 }
 #[derive(Deserialize)]
 struct UserList {
-    #[serde(rename = "UTI_Utilisateurs")]
     list: Vec<User>,
 }
 #[derive(Deserialize)]
@@ -940,46 +766,31 @@ pub async fn update_address(user_id: &str, zip_code: &str, city: &City) -> Optio
     if success { Some(()) } else { None }
 }
 
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Gender {
-    Female,
-    Male,
-    Unspecified,
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum LicenseType {
-    Adult,
-    Child,
-    Family,
-    NonMemberAdult,
-    NonMemberChild,
-}
-
 impl TryFrom<&str> for LicenseType {
     type Error = &'static str;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         match value {
-            "licence_adulte" => Ok(LicenseType::Adult),
-            "hors_club_adulte" => Ok(LicenseType::NonMemberAdult),
-            "licence_jeune" => Ok(LicenseType::Child),
-            "hors_club_jeune" => Ok(LicenseType::NonMemberChild),
-            "licence_famille" => Ok(LicenseType::Family),
+            "adult" | "licence_adulte" | "ab229bd0-53c7-4c8c-83d1-bade2cbb5fcc" => {
+                Ok(LicenseType::Adult)
+            }
+            "non_member_adult" | "hors_club_adulte" | "8dd8c63f-a9da-4237-aec9-74f905fb2b37" => {
+                Ok(LicenseType::NonPracticingAdult)
+            }
+            "child" | "licence_jeune" | "09fd57d3-0f38-407d-95b5-08d3e8369297" => {
+                Ok(LicenseType::Child)
+            }
+            "non_member_child" | "hors_club_jeune" | "46786452-7ca2-4dc1-a15d-effb3f7e69b0" => {
+                Ok(LicenseType::NonMemberChild)
+            }
+            "family" | "licence_famille" | "865d950e-9825-49f3-858b-ca1a776734b3" => {
+                Ok(LicenseType::Family)
+            }
+            "non_practicing_adult" => Ok(LicenseType::NonPracticingAdult),
+            "non_practicing_child" => Ok(LicenseType::NonPracticingChild),
             _ => Err("unknown license type"),
         }
     }
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum MedicalCertificateStatus {
-    Recreational,
-    Competition,
-    HealthQuestionnaire,
-    WaitingForDocument,
 }
 
 impl TryFrom<&str> for MedicalCertificateStatus {
@@ -987,62 +798,15 @@ impl TryFrom<&str> for MedicalCertificateStatus {
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         match value {
-            "loisir" => Ok(MedicalCertificateStatus::Recreational),
+            "recreational" | "loisir" => Ok(MedicalCertificateStatus::Recreational),
             "competition" => Ok(MedicalCertificateStatus::Competition),
-            "waiting_document" => Ok(MedicalCertificateStatus::WaitingForDocument),
-            "qs" => Ok(MedicalCertificateStatus::HealthQuestionnaire),
+            "waiting_for_document" | "waiting_document" => {
+                Ok(MedicalCertificateStatus::WaitingForDocument)
+            }
+            "health_questionnaire" | "qs" => Ok(MedicalCertificateStatus::HealthQuestionnaire),
             _ => Err("unknown medical certificate status"),
         }
     }
-}
-
-#[derive(Deserialize, Serialize)]
-pub struct Licensee {
-    pub id: String,
-    #[serde(deserialize_with = "deserialize_gender")]
-    pub gender: Gender,
-    pub first_name: String,
-    pub last_name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub birth_name: Option<String>,
-    #[serde(deserialize_with = "deserialize_date")]
-    pub dob: u32,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub email: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub alt_email: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub phone_number: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub alt_phone_number: Option<String>,
-    pub license_number: u32,
-    // pub active_license: bool,
-    #[serde(
-        default,
-        deserialize_with = "deserialize_address",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub(crate) address: Option<Address>,
-    #[serde(
-        default,
-        deserialize_with = "deserialize_license_type",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub(crate) license_type: Option<LicenseType>,
-    #[serde(
-        default,
-        deserialize_with = "deserialize_medical_certificate_status",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub(crate) medical_certificate_status: Option<MedicalCertificateStatus>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) latest_license_season: Option<u16>,
-    #[serde(
-        default,
-        deserialize_with = "deserialize_structure",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub(crate) latest_structure: Option<Structure>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -1061,10 +825,20 @@ pub struct Address {
     pub city: Option<String>,
 }
 
-#[derive(Deserialize, Serialize)]
-pub struct Structure {
-    pub id: u32,
-    pub name: String,
+#[derive(Deserialize)]
+struct License {
+    pub user_id: Option<String>,
+    pub season: u16,
+    // #[serde(deserialize_with = "deserialize_license_number")]
+    // pub license_number: u32,
+    pub structure_id: u32,
+    #[serde(rename = "product_id", deserialize_with = "deserialize_license_type")]
+    pub license_type: Option<LicenseType>,
+    #[serde(
+        rename = "status",
+        deserialize_with = "deserialize_medical_certificate_status"
+    )]
+    pub medical_certificate_status: Option<MedicalCertificateStatus>,
 }
 
 fn deserialize_date<'de, D>(deserializer: D) -> Result<u32, D::Error>
@@ -1081,36 +855,6 @@ where
     let mm = split.next().ok_or_else(|| Error::custom("invalid date"))?;
     let dd = split.next().ok_or_else(|| Error::custom("invalid date"))?;
     format!("{yyyy}{mm}{dd}").parse().map_err(Error::custom)
-}
-
-fn deserialize_license_number<'de, D>(deserializer: D) -> Result<u32, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let s: &str = serde::Deserialize::deserialize(deserializer)?;
-    s.parse().map_err(Error::custom)
-}
-
-fn deserialize_address<'de, D>(deserializer: D) -> Result<Option<Address>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let result = <Vec<Address>>::deserialize(deserializer);
-    match result {
-        Ok(it) => Ok(it.into_iter().next()),
-        Err(_err) => Ok(None),
-    }
-}
-
-fn deserialize_structure<'de, D>(deserializer: D) -> Result<Option<Structure>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let result = <Vec<Structure>>::deserialize(deserializer);
-    match result {
-        Ok(it) => Ok(it.into_iter().next()),
-        Err(_err) => Ok(None),
-    }
 }
 
 fn deserialize_gender<'de, D>(deserializer: D) -> Result<Gender, D::Error>
@@ -1153,8 +897,12 @@ const X_HASURA_ROLE: HeaderName = HeaderName::from_static("x-hasura-role");
 const ADMIN: HeaderValue = HeaderValue::from_static("admin");
 
 const GRAPHQL_GET_USERS_BY_IDS: &str = "\
-    query getUsersByIds($ids: [uuid!]!) {
-        UTI_Utilisateurs(where: {id: {_in: $ids}}) {
+    query getUsersByIds(
+        $ids: [uuid!]!
+    ) {
+        list: UTI_Utilisateurs(
+            where: { id: { _in: $ids } }
+        ) {
             id
             gender: CT_EST_Civilite
             first_name: CT_Prenom
@@ -1169,20 +917,17 @@ const GRAPHQL_GET_USERS_BY_IDS: &str = "\
             username: LOG_Login
             birth_place: DN_CommuneNaissance
             birth_place_insee: DN_CommuneNaissance_CodeInsee
-            active_license: EST_Licencie
-            structures: STR_StructureUtilisateurs {
-                structure {
-                    id,
-                    name: label,
-                }
-            }
         }
     }\
 ";
 
-const GRAPHQL_GET_USERS_BY_LICENSE_NUMBER: &str = "\
-    query getUsersByLicenseNumbers($license_numbers: [bigint!]!) {
-        UTI_Utilisateurs(where: {LicenceNumero: {_in: $license_numbers}}) {
+const GRAPHQL_GET_USERS_BY_LICENSE_NUMBERS: &str = "\
+    query getUsersByLicenseNumbers(
+        $license_numbers: [bigint!]!
+    ) {
+        list: UTI_Utilisateurs(
+            where: { LicenceNumero: { _in: $license_numbers } }
+        ) {
             id
             gender: CT_EST_Civilite
             first_name: CT_Prenom
@@ -1197,24 +942,68 @@ const GRAPHQL_GET_USERS_BY_LICENSE_NUMBER: &str = "\
             username: LOG_Login
             birth_place: DN_CommuneNaissance
             birth_place_insee: DN_CommuneNaissance_CodeInsee
-            active_license: EST_Licencie
-            STR_StructureUtilisateurs {
-                structure {
-                    id,
-                    label
-                }
-            },
-            __typename
+        }
+    }\
+";
+
+const GRAPHQL_GET_USERS_BY_DATE_OF_BIRTH: &str = "\
+    query getUsersByDateOfBirth(
+        $dob: date!
+    ) {
+        list: UTI_Utilisateurs(
+            where: { DN_DateNaissance: { _eq: $dob } }
+        ) {
+            id
+            gender: CT_EST_Civilite
+            first_name: CT_Prenom
+            last_name: CT_Nom
+            birth_name: CT_NomDeNaissance
+            dob: DN_DateNaissance
+            email: CT_Email
+            alt_email: CT_Email2
+            phone_number: CT_TelephoneMobile
+            alt_phone_number: CT_TelephoneFixe
+            license_number: LicenceNumero
+            username: LOG_Login
+            birth_place: DN_CommuneNaissance
+            birth_place_insee: DN_CommuneNaissance_CodeInsee
+        }
+    }\
+";
+
+const GRAPHQL_GET_USERS_BY_STRUCTURE_ID: &str = "\
+    query getUsersByStructureId(
+        $id: Int!
+    ) {
+        list: UTI_Utilisateurs(
+            where: { STR_StructureUtilisateurs: { ID_Structure: { _eq: $id} } }
+        ) {
+            id
+            gender: CT_EST_Civilite
+            first_name: CT_Prenom
+            last_name: CT_Nom
+            birth_name: CT_NomDeNaissance
+            dob: DN_DateNaissance
+            email: CT_Email
+            alt_email: CT_Email2
+            phone_number: CT_TelephoneMobile
+            alt_phone_number: CT_TelephoneFixe
+            license_number: LicenceNumero
+            username: LOG_Login
+            birth_place: DN_CommuneNaissance
+            birth_place_insee: DN_CommuneNaissance_CodeInsee
         }
     }\
 ";
 
 const GRAPHQL_GET_ADDRESSES_BY_USER_IDS: &str = "\
-    query getAddressesByUserIds($ids: [uuid!]!) {
-        ADR_Adresse(
-            where: {ID_Utilisateur: {_in: $ids}},
-            order_by: [{ ID_Utilisateur: asc }, { Z_DateModification: desc }],
-            distinct_on: [ID_Utilisateur]
+    query getAddressesByUserIds(
+        $ids: [uuid!]!
+    ) {
+        list: ADR_Adresse(
+            where: { ID_Utilisateur: { _in: $ids } }
+            order_by: [ { ID_Utilisateur: asc }, { Z_DateModification: desc } ]
+            distinct_on: [ ID_Utilisateur ]
         ) {
             user_id: ID_Utilisateur
             line1: Adresse1
@@ -1222,18 +1011,51 @@ const GRAPHQL_GET_ADDRESSES_BY_USER_IDS: &str = "\
             insee: CodeInsee
             zip_code: CodePostal,
             city: Ville
-            __typename
+        }
+    }\
+";
+
+const GRAPHQL_GET_LICENSES_BY_USER_IDS: &str = "\
+    query getLicencesByUserIds(
+        $ids: [uuid!]!
+    ) {
+        list: licence(
+            where: { user_id: { _in: $ids } }
+            order_by: [ { user_id: asc }, { season_id: desc_nulls_last } ]
+            distinct_on: user_id
+        ) {
+            product_id
+            non_practicing
+            structure_id
+            status
+            user_id
+            season: season_id
+        }
+    }\
+";
+
+const GRAPHQL_GET_STRUCTURES_BY_IDS: &str = "\
+    query getStructuresById($ids: [Int!]!) {
+        list: structure(
+            where: { id: { _in: $ids } }
+        ) {
+            id
+            code: federal_code
+            name: label
+            department: department_id
         }
     }\
 ";
 
 const GRAPHQL_UPDATE_ADDRESS_CITY: &str = "\
-    mutation updateAddress($id: uuid!, $city: String!, $zip: String!, $insee: String!) {
+    mutation updateAddress(
+        $id: uuid!, $city: String!, $zip: String!, $insee: String!
+    ) {
         update_ADR_Adresse(
-            where: { ID_Utilisateur: {_eq: $id}},
+            where: { ID_Utilisateur: { _eq: $id } }
             _set: {
-                Ville: $city,
-                CodeInsee: $insee,
+                Ville: $city
+                CodeInsee: $insee
                 CodePostal: $zip
             }
         ) {
@@ -1293,74 +1115,54 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_search_by_license_number() {
+    async fn test_member_by_license_number() {
+        // println!("{}", update_bearer_token(0).await.unwrap());
         assert!(update_bearer_token(0).await.is_some());
         let t0 = SystemTime::now();
-        let results = search(None, None, Some(154316)).await.unwrap();
+        let result = member_by_license_number(154316).await.unwrap();
         let elapsed = t0.elapsed().unwrap();
         println!("{elapsed:?}");
-        assert!(!results.is_empty());
-        println!("{}", results.len());
-        let result = results.first().unwrap();
-        assert_eq!(19750826, result.licensee.dob);
-        assert_eq!("GRAS", result.licensee.last_name);
-        println!("{}", serde_json::to_string(result).unwrap())
+        assert_eq!(19750826, result.dob);
+        assert_eq!("GRAS", result.last_name);
     }
 
     #[tokio::test]
-    async fn test_search_by_name_and_dob() {
+    async fn test_licensee_by_last_name_and_dob() {
         assert!(update_bearer_token(0).await.is_some());
         let t0 = SystemTime::now();
-        let results = search(Some("DAVID"), Some(19770522), None).await.unwrap();
-        let elapsed = t0.elapsed().unwrap();
-        println!("{elapsed:?}");
-        assert!(!results.is_empty());
-        println!("{}", results.len());
-        let result = results.first().unwrap();
-        assert_eq!(19770522, result.licensee.dob);
-        assert_eq!("DAVID", result.licensee.last_name);
-        println!("{}", serde_json::to_string(result).unwrap())
-    }
-
-    #[tokio::test]
-    async fn test_user_by_license_number_and_name() {
-        assert!(update_bearer_token(0).await.is_some());
-        let t0 = SystemTime::now();
-        let info = user_by_license_number(154316).await.unwrap();
-        let elapsed = t0.elapsed().unwrap();
-        println!("{elapsed:?}");
-        assert!(info.latest_structure_name.is_some());
-        assert!(info.latest_license_season.is_some());
-        assert_eq!(
-            info.latest_license_season,
-            info.licensee.last_license_season
-        );
-        assert_eq!("5f5e0d27-cf50-42ea-89f8-f1649a2ef6aa", info.licensee.id);
-        assert_eq!(19750826, info.licensee.dob);
-        assert_eq!("GRAS", info.licensee.last_name);
-        println!("{}", serde_json::to_string(&info).unwrap())
-    }
-
-    #[tokio::test]
-    async fn test_list() {
-        assert!(update_bearer_token(0).await.is_some());
-        let t0 = SystemTime::now();
-        let results = current_licensees().await.unwrap();
-        let elapsed = t0.elapsed().unwrap();
-        println!("{elapsed:?}");
-        assert!(!results.is_empty());
-        println!("{}", results.len());
-        println!("{}", serde_json::to_string(&results).unwrap());
-        tokio::fs::OpenOptions::new()
-            .write(true)
-            .truncate(true)
-            .create(true)
-            .open(".list.json")
-            .await
-            .ok()
-            .unwrap()
-            .write_all(serde_json::to_string(&results).unwrap().as_bytes())
+        let results = member_by_name_and_dob("Jerome", "DAVID", 19770522)
             .await
             .unwrap();
+        let elapsed = t0.elapsed().unwrap();
+        println!("{elapsed:?}");
+        assert!(!results.is_empty());
+        println!("{}", results.len());
+        let result = results.first().unwrap();
+        assert_eq!(19770522, result.dob);
+        assert_eq!("DAVID", result.last_name);
+        println!("{}", serde_json::to_string(result).unwrap())
     }
+
+    // #[tokio::test]
+    // async fn test_list() {
+    //     assert!(update_bearer_token(0).await.is_some());
+    //     let t0 = SystemTime::now();
+    //     let results = current_licensees().await.unwrap();
+    //     let elapsed = t0.elapsed().unwrap();
+    //     println!("{elapsed:?}");
+    //     assert!(!results.is_empty());
+    //     println!("{}", results.len());
+    //     println!("{}", serde_json::to_string(&results).unwrap());
+    //     tokio::fs::OpenOptions::new()
+    //         .write(true)
+    //         .truncate(true)
+    //         .create(true)
+    //         .open(".list.json")
+    //         .await
+    //         .ok()
+    //         .unwrap()
+    //         .write_all(serde_json::to_string(&results).unwrap().as_bytes())
+    //         .await
+    //         .unwrap();
+    // }
 }
