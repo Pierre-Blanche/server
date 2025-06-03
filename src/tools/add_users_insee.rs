@@ -29,16 +29,20 @@ async fn main() {
             .metadata
             .map(|it| serde_json::from_value(it).expect("failed to deserialize metadata"))
             .unwrap_or(Metadata::default());
-        let mut address = addresses.remove(user.id.as_str()).expect(&format!(
-            "failed to get address for user: {} {}",
-            user.first_name, user.last_name
-        ));
+        let mut address = addresses.remove(user.id.as_str()).unwrap_or_else(|| {
+            panic!(
+                "failed to get address for user: {} {}",
+                user.first_name, user.last_name
+            )
+        });
         if address.insee.is_none() {
             if let Some(city_name) = address.city {
-                let zip_code = address.zip_code.expect(&format!(
-                    "missing zip code for user: {}, {}",
-                    user.first_name, user.last_name
-                ));
+                let zip_code = address.zip_code.unwrap_or_else(|| {
+                    panic!(
+                        "missing zip code for user: {}, {}",
+                        user.first_name, user.last_name
+                    )
+                });
                 let normalized_city_name = normalize_city(&city_name);
                 match cities_by_zip_code(&zip_code)
                     .await
@@ -74,10 +78,12 @@ async fn main() {
         }
     }
     for (key, user) in updates {
-        Snapshot::set(key, &user).await.expect(&format!(
-            "failed to update user: {} {}",
-            user.first_name, user.last_name
-        ));
+        Snapshot::set(key, &user).await.unwrap_or_else(|| {
+            panic!(
+                "failed to update user: {} {}",
+                user.first_name, user.last_name
+            )
+        });
         println!("updated user: {} {}", user.first_name, user.last_name);
     }
 }

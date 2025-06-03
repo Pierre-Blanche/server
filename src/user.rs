@@ -32,8 +32,7 @@ pub enum LicenseType {
     Family,
     NonMemberAdult,
     NonMemberChild,
-    NonPracticingAdult,
-    NonPracticingChild,
+    NonPracticing,
 }
 
 #[derive(Deserialize, Serialize)]

@@ -1,5 +1,6 @@
 use crate::address::City;
 use crate::chrome::{ChromeVersion, CHROME_VERSION};
+use crate::user::LicenseType::NonPracticing;
 use crate::user::{Gender, LicenseType, MedicalCertificateStatus, Metadata, Structure};
 use hyper::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, ORIGIN, REFERER};
 use hyper::http::{HeaderName, HeaderValue};
@@ -19,6 +20,7 @@ use std::time::{Duration, SystemTime};
 use tiered_server::env::{secret_value, ConfigurationKey};
 use tiered_server::headers::JSON;
 use tiered_server::norm::{normalize_first_name, normalize_last_name};
+#[allow(unused_imports)]
 use tokio::io::AsyncWriteExt;
 use tokio::time::sleep;
 use tracing::debug;
@@ -45,19 +47,19 @@ pub async fn ffme_auth_update_loop() {
                     let chrome_version_timestamp =
                         CHROME_VERSION.get_ref().map(|it| it.timestamp).unwrap_or(0);
                     let mut success = true;
-                    if timestamp > chrome_version_timestamp + USERAGENT_VALIDITY_SECONDS {
-                        if !update_chrome_version(timestamp).await {
-                            success = false;
-                        }
+                    if timestamp > chrome_version_timestamp + USERAGENT_VALIDITY_SECONDS
+                        && !update_chrome_version(timestamp).await
+                    {
+                        success = false;
                     }
                     let token_timestamp = MYFFME_AUTHORIZATION
                         .get_ref()
                         .map(|it| it.timestamp)
                         .unwrap_or(0);
-                    if timestamp > token_timestamp + AUTHORIZATION_VALIDITY_SECONDS {
-                        if update_bearer_token(timestamp).await.is_none() {
-                            success = false;
-                        }
+                    if timestamp > token_timestamp + AUTHORIZATION_VALIDITY_SECONDS
+                        && update_bearer_token(timestamp).await.is_none()
+                    {
+                        success = false;
                     }
                     sleep(Duration::from_secs(if success {
                         (15_000 + fastrand::i16(-1500..1500)) as u64
@@ -96,8 +98,7 @@ static USERNAME: LazyLock<&'static str> =
 static PASSWORD: LazyLock<&'static str> =
     LazyLock::new(|| secret_value(PASSWORD_KEY).expect("myffme password not set"));
 
-static MYFFME_AUTHORIZATION: LazyLock<Pinboard<Authorization>> =
-    LazyLock::new(|| Pinboard::new_empty());
+static MYFFME_AUTHORIZATION: LazyLock<Pinboard<Authorization>> = LazyLock::new(Pinboard::new_empty);
 
 fn client() -> Client {
     let chrome_version = CHROME_VERSION
@@ -454,6 +455,8 @@ async fn users_response_to_members(response: Response) -> Option<Vec<Member>> {
     let user_ids = users.iter().map(|it| it.id.as_str()).collect::<Vec<_>>();
     let mut addresses = user_addresses(&user_ids).await?;
     let mut licenses = user_licenses(&user_ids).await?;
+    let mut medical_certificates = user_medical_certificates(&user_ids).await?;
+    let mut health_questionnaires = user_health_questionnaires(&user_ids).await?;
     let structure_ids = licenses
         .values()
         .map(|it| it.structure_id)
@@ -469,9 +472,74 @@ async fn users_response_to_members(response: Response) -> Option<Vec<Member>> {
                     .as_ref()
                     .and_then(|it| structures.get(&it.structure_id).cloned());
                 let latest_license_season = license.as_ref().map(|it| it.season);
-                let (license_type, medical_certificate_status) = license
-                    .map(|it| (it.license_type, it.medical_certificate_status))
-                    .unwrap_or((None, None));
+                let license_type = if it.non_practicing.unwrap_or(false) {
+                    Some(NonPracticing)
+                } else {
+                    license.and_then(|it| it.license_type)
+                };
+                let health_questionnaire = health_questionnaires.remove(&it.id).and_then(|it| {
+                    if let Some(season) = latest_license_season {
+                        if it.season == season { Some(it) } else { None }
+                    } else {
+                        None
+                    }
+                });
+                let medical_certificate = medical_certificates.remove(&it.id).unwrap_or(Document {
+                    user_id: None,
+                    season: 0,
+                    category: 5,
+                });
+                let medical_certificate_status =
+                    latest_license_season.map(|season| match medical_certificate.category {
+                        5 => {
+                            if medical_certificate.season == season {
+                                MedicalCertificateStatus::Recreational
+                            } else if let Some(questionnaire) = health_questionnaire {
+                                if questionnaire.season == season {
+                                    if medical_certificate.season + 3 > season {
+                                        MedicalCertificateStatus::Recreational
+                                    } else {
+                                        MedicalCertificateStatus::HealthQuestionnaire
+                                    }
+                                } else {
+                                    MedicalCertificateStatus::WaitingForDocument
+                                }
+                            } else {
+                                MedicalCertificateStatus::WaitingForDocument
+                            }
+                        }
+                        9 => {
+                            if medical_certificate.season == season {
+                                MedicalCertificateStatus::Competition
+                            } else if let Some(questionnaire) = health_questionnaire {
+                                if questionnaire.season == season {
+                                    if medical_certificate.season + 3 > season {
+                                        MedicalCertificateStatus::Competition
+                                    } else {
+                                        MedicalCertificateStatus::HealthQuestionnaire
+                                    }
+                                } else {
+                                    MedicalCertificateStatus::WaitingForDocument
+                                }
+                            } else {
+                                MedicalCertificateStatus::WaitingForDocument
+                            }
+                        }
+                        _ => {
+                            if medical_certificate.season == season {
+                                MedicalCertificateStatus::Recreational
+                            } else if let Some(questionnaire) = health_questionnaire {
+                                if questionnaire.season == season {
+                                    MedicalCertificateStatus::HealthQuestionnaire
+                                } else {
+                                    MedicalCertificateStatus::WaitingForDocument
+                                }
+                            } else {
+                                MedicalCertificateStatus::WaitingForDocument
+                            }
+                        }
+                    });
+
                 Member {
                     first_name: it.first_name,
                     last_name: it.last_name,
@@ -488,6 +556,148 @@ async fn users_response_to_members(response: Response) -> Option<Vec<Member>> {
                         latest_structure,
                     },
                 }
+            })
+            .collect(),
+    )
+}
+
+async fn user_medical_certificates(ids: &[&str]) -> Option<BTreeMap<String, Document>> {
+    let url = Url::parse("https://back-prod.core.myffme.fr/v1/graphql").unwrap();
+    let client = client();
+    let request = client
+        .post(url.as_str())
+        .header(ORIGIN, HeaderValue::from_static("https://www.myffme.fr"))
+        .header(REFERER, HeaderValue::from_static("https://www.myffme.fr/"))
+        .header(X_HASURA_ROLE, ADMIN)
+        .header(
+            AUTHORIZATION,
+            MYFFME_AUTHORIZATION
+                .get_ref()
+                .map(|it| it.bearer_token.clone())?,
+        )
+        .json(&json!({
+            "operationName": "getMedicalCertificatesByUserIds",
+            "query": GRAPHQL_GET_MEDICAL_CERTIFICATES_BY_USER_IDS,
+            "variables": {
+                "ids": ids,
+            }
+        }))
+        .build()
+        .ok()?;
+    let response = client.execute(request).await.ok()?;
+    #[derive(Deserialize)]
+    struct DocumentList {
+        list: Vec<Document>,
+    }
+    #[derive(Deserialize)]
+    struct GraphqlResponse {
+        data: DocumentList,
+    }
+    #[cfg(test)]
+    let documents = {
+        println!("medical certificates");
+        println!("POST {}", url.as_str());
+        println!("{}", response.status());
+        let text = response.text().await.ok()?;
+        let file_name = format!(".medical_certificates.json");
+        tokio::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .create(true)
+            .open(&file_name)
+            .await
+            .ok()?
+            .write_all(text.as_bytes())
+            .await
+            .unwrap();
+        serde_json::from_str::<GraphqlResponse>(&text)
+            .map_err(|e| {
+                eprintln!("{e:?}");
+                e
+            })
+            .ok()?
+            .data
+            .list
+    };
+    #[cfg(not(test))]
+    let documents = response.json::<GraphqlResponse>().await.ok()?.data.list;
+    Some(
+        documents
+            .into_iter()
+            .map(|mut document| {
+                let id = document.user_id.take().unwrap();
+                (id, document)
+            })
+            .collect(),
+    )
+}
+
+async fn user_health_questionnaires(ids: &[&str]) -> Option<BTreeMap<String, Document>> {
+    let url = Url::parse("https://back-prod.core.myffme.fr/v1/graphql").unwrap();
+    let client = client();
+    let request = client
+        .post(url.as_str())
+        .header(ORIGIN, HeaderValue::from_static("https://www.myffme.fr"))
+        .header(REFERER, HeaderValue::from_static("https://www.myffme.fr/"))
+        .header(X_HASURA_ROLE, ADMIN)
+        .header(
+            AUTHORIZATION,
+            MYFFME_AUTHORIZATION
+                .get_ref()
+                .map(|it| it.bearer_token.clone())?,
+        )
+        .json(&json!({
+            "operationName": "getHealthQuestionnairesByUserIds",
+            "query": GRAPHQL_GET_HEALTH_QUESTIONNAIRES_BY_USER_IDS,
+            "variables": {
+                "ids": ids,
+            }
+        }))
+        .build()
+        .ok()?;
+    let response = client.execute(request).await.ok()?;
+    #[derive(Deserialize)]
+    struct DocumentList {
+        list: Vec<Document>,
+    }
+    #[derive(Deserialize)]
+    struct GraphqlResponse {
+        data: DocumentList,
+    }
+    #[cfg(test)]
+    let documents = {
+        println!("health questionnaires");
+        println!("POST {}", url.as_str());
+        println!("{}", response.status());
+        let text = response.text().await.ok()?;
+        let file_name = format!(".health_questionnaires.json");
+        tokio::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .create(true)
+            .open(&file_name)
+            .await
+            .ok()?
+            .write_all(text.as_bytes())
+            .await
+            .unwrap();
+        serde_json::from_str::<GraphqlResponse>(&text)
+            .map_err(|e| {
+                eprintln!("{e:?}");
+                e
+            })
+            .ok()?
+            .data
+            .list
+    };
+    #[cfg(not(test))]
+    let documents = response.json::<GraphqlResponse>().await.ok()?.data.list;
+    Some(
+        documents
+            .into_iter()
+            .map(|mut document| {
+                let id = document.user_id.take().unwrap();
+                (id, document)
             })
             .collect(),
     )
@@ -707,6 +917,13 @@ async fn structures_by_ids(ids: &[u32]) -> Option<BTreeMap<u32, Structure>> {
 }
 
 #[derive(Deserialize)]
+struct Document {
+    pub user_id: Option<String>,
+    pub season: u16,
+    pub category: u8,
+}
+
+#[derive(Deserialize)]
 struct User {
     pub id: String,
     #[serde(deserialize_with = "deserialize_gender")]
@@ -759,7 +976,7 @@ pub async fn update_address(user_id: &str, zip_code: &str, city: &City) -> Optio
         .build()
         .ok()?;
     let response = client.execute(request).await.ok()?;
-    let success = (&response.status()).is_success();
+    let success = response.status().is_success();
     #[cfg(test)]
     {
         println!("POST {}", url.as_str());
@@ -789,7 +1006,7 @@ impl TryFrom<&str> for LicenseType {
                 Ok(LicenseType::Adult)
             }
             "non_member_adult" | "hors_club_adulte" | "8dd8c63f-a9da-4237-aec9-74f905fb2b37" => {
-                Ok(LicenseType::NonPracticingAdult)
+                Ok(LicenseType::NonMemberAdult)
             }
             "child" | "licence_jeune" | "09fd57d3-0f38-407d-95b5-08d3e8369297" => {
                 Ok(LicenseType::Child)
@@ -800,26 +1017,8 @@ impl TryFrom<&str> for LicenseType {
             "family" | "licence_famille" | "865d950e-9825-49f3-858b-ca1a776734b3" => {
                 Ok(LicenseType::Family)
             }
-            "non_practicing_adult" => Ok(LicenseType::NonPracticingAdult),
-            "non_practicing_child" => Ok(LicenseType::NonPracticingChild),
+            "non_practicing" => Ok(LicenseType::NonPracticing),
             other => Err(format!("unknown license type: {other}")),
-        }
-    }
-}
-
-impl TryFrom<&str> for MedicalCertificateStatus {
-    type Error = String;
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value {
-            "recreational" | "loisir" => Ok(MedicalCertificateStatus::Recreational),
-            "competition" => Ok(MedicalCertificateStatus::Competition),
-            "waiting_for_document" | "waiting_document" | "waiting_validation" => {
-                Ok(MedicalCertificateStatus::WaitingForDocument)
-            }
-            "health_questionnaire" | "qs" => Ok(MedicalCertificateStatus::HealthQuestionnaire),
-            "validate" => Ok(MedicalCertificateStatus::HealthQuestionnaire), // TODO
-            other => Err(format!("unknown medical certificate status: {}", other)),
         }
     }
 }
@@ -849,11 +1048,6 @@ struct License {
     pub structure_id: u32,
     #[serde(rename = "product_id", deserialize_with = "deserialize_license_type")]
     pub license_type: Option<LicenseType>,
-    #[serde(
-        rename = "status",
-        deserialize_with = "deserialize_medical_certificate_status"
-    )]
-    pub medical_certificate_status: Option<MedicalCertificateStatus>,
 }
 
 fn deserialize_date<'de, D>(deserializer: D) -> Result<u32, D::Error>
@@ -890,20 +1084,7 @@ where
 {
     let result = <&str>::deserialize(deserializer);
     match result {
-        Ok(str) => Ok(Some(str.try_into().map_err(|msg| Error::custom(msg))?)),
-        Err(_err) => Ok(None),
-    }
-}
-
-fn deserialize_medical_certificate_status<'de, D>(
-    deserializer: D,
-) -> Result<Option<MedicalCertificateStatus>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let result = <&str>::deserialize(deserializer);
-    match result {
-        Ok(str) => Ok(Some(str.try_into().map_err(|msg| Error::custom(msg))?)),
+        Ok(str) => Ok(Some(str.try_into().map_err(Error::custom)?)),
         Err(_err) => Ok(None),
     }
 }
@@ -1049,6 +1230,50 @@ const GRAPHQL_GET_LICENSES_BY_USER_IDS: &str = "\
     }\
 ";
 
+const GRAPHQL_GET_MEDICAL_CERTIFICATES_BY_USER_IDS: &str = "\
+    query getMedicalCertificatesByUserIds(
+        $ids: [uuid!]!
+    ) {
+        list: DOC_Document(
+            distinct_on: ID_Utilisateur
+            order_by: [ { ID_Utilisateur: asc }, { ID_Saison: desc_nulls_last } ]
+            where: {
+                ID_Utilisateur: { _in: $ids }
+                EST_DocumentValide: { _eq: true }
+                EST_Actif: { _eq: true }
+                ID_Type_Document: { _in: [ 5, 6, 7, 9 ] }
+            }
+        ) {
+            user_id: ID_Utilisateur,
+            season: ID_Saison,
+            status,
+            category: ID_Type_Document
+        }
+    }\
+";
+
+const GRAPHQL_GET_HEALTH_QUESTIONNAIRES_BY_USER_IDS: &str = "\
+    query getHealthQuestionnairesByUserIds(
+        $ids: [uuid!]!
+    ) {
+        list: DOC_Document(
+            distinct_on: ID_Utilisateur
+            order_by: [ { ID_Utilisateur: asc }, { ID_Saison: desc_nulls_last } ]
+            where: {
+                ID_Utilisateur: { _in: $ids }
+                EST_DocumentValide: { _eq: true }
+                EST_Actif: { _eq: true }
+                ID_Type_Document: { _in: [ 60 ] }
+            }
+        ) {
+            user_id: ID_Utilisateur,
+            season: ID_Saison,
+            status,
+            category: ID_Type_Document
+        }
+    }\
+";
+
 const GRAPHQL_GET_STRUCTURES_BY_IDS: &str = "\
     query getStructuresByIds($ids: [Int!]!) {
         list: structure(
@@ -1131,7 +1356,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_member_by_license_number() {
-        // println!("{}", update_bearer_token(0).await.unwrap());
         assert!(update_bearer_token(0).await.is_some());
         let t0 = SystemTime::now();
         let result = member_by_license_number(154316).await.unwrap();

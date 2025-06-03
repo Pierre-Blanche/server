@@ -8,6 +8,7 @@ use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tiered_server::headers::JSON;
+#[allow(unused_imports)]
 use tokio::io::AsyncWriteExt;
 use tracing::debug;
 

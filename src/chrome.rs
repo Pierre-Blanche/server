@@ -7,4 +7,4 @@ pub(crate) struct ChromeVersion {
 }
 
 pub(crate) static CHROME_VERSION: LazyLock<Pinboard<ChromeVersion>> =
-    LazyLock::new(|| Pinboard::new_empty());
+    LazyLock::new(Pinboard::new_empty);
