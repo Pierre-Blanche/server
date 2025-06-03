@@ -539,7 +539,9 @@ async fn users_response_to_members(response: Response) -> Option<Vec<Member>> {
                             }
                         }
                     });
-
+                let (insee, city, zip_code) = address
+                    .map(|it| (it.insee, it.city, it.zip_code))
+                    .unwrap_or((None, None, None));
                 Member {
                     first_name: it.first_name,
                     last_name: it.last_name,
@@ -549,7 +551,9 @@ async fn users_response_to_members(response: Response) -> Option<Vec<Member>> {
                         myffme_user_id: Some(it.id),
                         license_number: Some(it.license_number),
                         gender: Some(it.gender),
-                        insee: address.and_then(|it| it.insee),
+                        insee,
+                        city,
+                        zip_code,
                         license_type,
                         medical_certificate_status,
                         latest_license_season,
@@ -1024,7 +1028,7 @@ impl TryFrom<&str> for LicenseType {
 }
 
 #[derive(Deserialize, Serialize)]
-pub struct Address {
+pub(crate) struct Address {
     #[serde(skip_serializing)]
     pub user_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

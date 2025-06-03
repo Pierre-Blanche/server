@@ -159,7 +159,7 @@ pub async fn cities_by_zip_code(zip_code: &str) -> Option<Vec<City>> {
     response.json::<Vec<City>>().await.ok()
 }
 
-pub async fn address(insee: Option<&str>, text: &str) -> Option<Vec<Address>> {
+async fn address(insee: Option<&str>, text: &str) -> Option<Vec<Address>> {
     #[derive(Deserialize)]
     struct Addr {
         name: String,

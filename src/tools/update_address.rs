@@ -1,5 +1,7 @@
 use pierre_blanche_server::address::cities_by_zip_code;
-use pierre_blanche_server::myffme::{licensee, update_address, update_bearer_token};
+use pierre_blanche_server::myffme::{
+    member_by_license_number, update_address, update_bearer_token,
+};
 use tiered_server::norm::normalize_city;
 
 #[tokio::main]
@@ -16,35 +18,33 @@ async fn update_address_for_user_by_license_number(
             .await
             .expect("failed to get bearer token")
     );
-    let user = licensee(None, None, None, Some(license_number))
+    let user = member_by_license_number(license_number)
         .await
         .expect("failed to search for user");
     let normalized_city_name = normalize_city(city_name);
-    let mut iter = user.into_iter();
-    let user = iter.next().expect("failed to find user");
-    assert!(iter.next().is_none(), "found more than one user");
-    println!("user id: {}", user.id);
+    let user_id = user.metadata.myffme_user_id.expect("missing user id");
+    println!("user id: {user_id}");
     let city = cities_by_zip_code(zip_code)
         .await
         .expect("failed to search for city")
         .into_iter()
         .find(|it| normalize_city(&it.name) == normalized_city_name)
         .expect("failed to find city");
-    update_address(&user.id, zip_code, &city).await
+    update_address(&user_id, zip_code, &city).await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use pierre_blanche_server::address::alternate_city_names;
-    use pierre_blanche_server::myffme::{Address, Gender, LicenseType, MedicalCertificateStatus};
+    use pierre_blanche_server::user::Metadata;
     use serde::Deserialize;
     use tokio::fs::File;
     use tokio::io::AsyncReadExt;
 
     #[tokio::test]
     async fn test_update() {
-        let license_number = 33109_u32;
+        let license_number = 991297_u32;
         let zip_code = "85200";
         let city_name = "Fontenay-le-Comte";
         assert!(
@@ -56,22 +56,9 @@ mod tests {
 
     #[derive(Deserialize)]
     struct User {
-        id: String,
-        gender: Gender,
         first_name: String,
         last_name: String,
-        birth_name: Option<String>,
-        birth_place: Option<String>,
-        dob: u32,
-        email: String,
-        phone_number: Option<String>,
-        username: Option<String>,
-        active_license: bool,
-        license_type: LicenseType,
-        medical_certificate_status: MedicalCertificateStatus,
-        last_license_season: Option<u32>,
-        address: Address,
-        license_number: u32,
+        metadata: Metadata,
     }
 
     #[tokio::test]
@@ -83,15 +70,16 @@ mod tests {
             .read_to_string(&mut content)
             .await
             .expect("failed to read user list file");
-        let licensees = serde_json::from_str::<Vec<User>>(content.as_str())
+        let members = serde_json::from_str::<Vec<User>>(content.as_str())
             .expect("failed to parse user list file");
         let mut count = 0_usize;
-        for user in licensees.iter() {
-            if user.address.insee.is_some() {
+        for member in members.iter() {
+            let metadata = &member.metadata;
+            if metadata.insee.is_some() {
                 continue;
             }
-            if match &user.address {
-                Address {
+            if match metadata {
+                Metadata {
                     zip_code: Some(zip_code),
                     city: Some(city_name),
                     ..
@@ -130,15 +118,24 @@ mod tests {
                 }
             } {
                 eprintln!(
-                    "mismatch for user {} {} with id {} and license #{}; address: {}",
-                    user.first_name,
-                    user.last_name,
-                    user.id,
-                    user.license_number,
-                    serde_json::to_string(&user.address).unwrap()
+                    "mismatch for user {} {} with id {} and license #{}; city: {} {}",
+                    member.first_name.as_str(),
+                    member.last_name.as_str(),
+                    metadata
+                        .myffme_user_id
+                        .as_ref()
+                        .map(|it| it.as_str())
+                        .unwrap_or("?"),
+                    metadata.license_number.as_ref().copied().unwrap_or(0),
+                    metadata.city.as_ref().map(|it| it.as_str()).unwrap_or("?"),
+                    metadata
+                        .zip_code
+                        .as_ref()
+                        .map(|it| it.as_str())
+                        .unwrap_or("?")
                 );
             }
         }
-        println!("{} users", licensees.len());
+        println!("{} users", members.len());
     }
 }
