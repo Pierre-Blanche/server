@@ -12,10 +12,6 @@ name = "add_users_metadata"
 path = "src/tools/add_users_metadata.rs"
 
 [[bin]]
-name = "add_users_insee"
-path = "src/tools/add_users_insee.rs"
-
-[[bin]]
 name = "update_address"
 path = "src/tools/update_address.rs"
 

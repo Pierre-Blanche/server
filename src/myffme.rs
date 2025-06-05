@@ -707,7 +707,7 @@ async fn user_health_questionnaires(ids: &[&str]) -> Option<BTreeMap<String, Doc
     )
 }
 
-pub async fn user_addresses(ids: &[&str]) -> Option<BTreeMap<String, Address>> {
+async fn user_addresses(ids: &[&str]) -> Option<BTreeMap<String, Address>> {
     let url = Url::parse("https://back-prod.core.myffme.fr/v1/graphql").unwrap();
     let client = client();
     let request = client
@@ -953,7 +953,13 @@ struct GraphqlResponse {
     data: UserList,
 }
 
-pub async fn update_address(user_id: &str, zip_code: &str, city: &City) -> Option<()> {
+pub async fn update_address(
+    user_id: &str,
+    zip_code: &str,
+    city: &City,
+    line1: Option<String>,
+    country_id: Option<u16>,
+) -> Option<()> {
     let url = Url::parse("https://back-prod.core.myffme.fr/v1/graphql").unwrap();
     let client = client();
     let request = client
@@ -981,24 +987,102 @@ pub async fn update_address(user_id: &str, zip_code: &str, city: &City) -> Optio
         .ok()?;
     let response = client.execute(request).await.ok()?;
     let success = response.status().is_success();
-    #[cfg(test)]
-    {
-        println!("POST {}", url.as_str());
-        println!("{}", response.status());
-        let text = response.text().await.ok()?;
-        let file_name = format!(".update_address_{user_id}.json");
-        tokio::fs::OpenOptions::new()
-            .write(true)
-            .truncate(true)
-            .create(true)
-            .open(&file_name)
+    if success {
+        #[derive(Deserialize)]
+        struct AffectedRows {
+            affected_rows: u16,
+        }
+        #[derive(Deserialize)]
+        struct MutationResult {
+            result: AffectedRows,
+        }
+        #[derive(Deserialize)]
+        struct GraphqlResponse {
+            data: MutationResult,
+        }
+        #[cfg(test)]
+        let affected_rows = {
+            println!("POST {}", url.as_str());
+            println!("{}", response.status());
+            let text = response.text().await.ok()?;
+            let file_name = format!(".update_address_{user_id}.json");
+            tokio::fs::OpenOptions::new()
+                .write(true)
+                .truncate(true)
+                .create(true)
+                .open(&file_name)
+                .await
+                .ok()?
+                .write_all(text.as_bytes())
+                .await
+                .unwrap();
+            serde_json::from_str::<GraphqlResponse>(&text)
+                .ok()?
+                .data
+                .result
+                .affected_rows
+        };
+        #[cfg(not(test))]
+        let affected_rows = response
+            .json::<GraphqlResponse>()
             .await
             .ok()?
-            .write_all(text.as_bytes())
-            .await
-            .unwrap();
+            .data
+            .result
+            .affected_rows;
+        if affected_rows > 0 {
+            Some(())
+        } else {
+            let client = crate::myffme::client();
+            let request = client
+                .post(url.as_str())
+                .header(ORIGIN, HeaderValue::from_static("https://www.myffme.fr"))
+                .header(REFERER, HeaderValue::from_static("https://www.myffme.fr/"))
+                .header(X_HASURA_ROLE, ADMIN)
+                .header(
+                    AUTHORIZATION,
+                    MYFFME_AUTHORIZATION
+                        .get_ref()
+                        .map(|it| it.bearer_token.clone())?,
+                )
+                .json(&json!({
+                    "operationName": "insertAddress",
+                    "query": GRAPHQL_INSERT_ADDRESS_CITY,
+                    "variables": {
+                        "id": user_id,
+                        "city": city.name,
+                        "zip": zip_code,
+                        "insee": city.insee,
+                        "line1": line1.unwrap_or_default(),
+                        "country_id": country_id.unwrap_or(75)
+                    }
+                }))
+                .build()
+                .ok()?;
+            let response = client.execute(request).await.ok()?;
+            let success = response.status().is_success();
+            #[cfg(test)]
+            {
+                println!("POST {}", url.as_str());
+                println!("{}", response.status());
+                let text = response.text().await.ok()?;
+                let file_name = format!(".insert_address_{user_id}.json");
+                tokio::fs::OpenOptions::new()
+                    .write(true)
+                    .truncate(true)
+                    .create(true)
+                    .open(&file_name)
+                    .await
+                    .ok()?
+                    .write_all(text.as_bytes())
+                    .await
+                    .unwrap();
+            }
+            if success { Some(()) } else { None }
+        }
+    } else {
+        None
     }
-    if success { Some(()) } else { None }
 }
 
 impl TryFrom<&str> for LicenseType {
@@ -1293,24 +1377,45 @@ const GRAPHQL_GET_STRUCTURES_BY_IDS: &str = "\
 
 const GRAPHQL_UPDATE_ADDRESS_CITY: &str = "\
     mutation updateAddress(
-        $id: uuid!, $city: String!, $zip: String!, $insee: String!
+        $id: uuid!
+        $city: String!
+        $zip: String!
+        $insee: String!
     ) {
-        update_ADR_Adresse(
+        result: update_ADR_Adresse(
             where: { ID_Utilisateur: { _eq: $id } }
             _set: {
                 Ville: $city
                 CodeInsee: $insee
                 CodePostal: $zip
+                # ID_Pays: 75
             }
         ) {
             affected_rows
-            returning {
-                id
-                ID_Utilisateur
-                Ville
-                CodeInsee
-                CodePostal
+        }
+    }\
+";
+
+const GRAPHQL_INSERT_ADDRESS_CITY: &str = "\
+    mutation insertAddress(
+        $id: uuid!
+        $city: String!
+        $zip: String!
+        $insee: String!
+        $line1: String!
+        $country_id: Int!
+    ) {
+        result: insert_ADR_Adresse_one(
+            object: {
+                ID_Utilisateur: $id
+                Ville: $city
+                CodeInsee: $insee
+                CodePostal: $zip
+                Adresse1: $line1
+                ID_Pays: $country_id
             }
+        ) {
+            id
         }
     }\
 ";

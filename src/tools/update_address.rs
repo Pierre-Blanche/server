@@ -11,6 +11,8 @@ async fn update_address_for_user_by_license_number(
     license_number: u32,
     city_name: &str,
     zip_code: &str,
+    line1: Option<&str>,
+    country_id: Option<u16>,
 ) -> Option<()> {
     println!(
         "{}",
@@ -30,27 +32,43 @@ async fn update_address_for_user_by_license_number(
         .into_iter()
         .find(|it| normalize_city(&it.name) == normalized_city_name)
         .expect("failed to find city");
-    update_address(&user_id, zip_code, &city).await
+    update_address(
+        &user_id,
+        zip_code,
+        &city,
+        line1.map(|it| it.to_string()),
+        country_id,
+    )
+    .await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pierre_blanche_server::address::alternate_city_names;
+    use pierre_blanche_server::address::{alternate_city_names, city_name_by_insee, City};
     use pierre_blanche_server::user::Metadata;
     use serde::Deserialize;
+    use std::collections::BTreeMap;
     use tokio::fs::File;
     use tokio::io::AsyncReadExt;
 
     #[tokio::test]
     async fn test_update() {
-        let license_number = 991297_u32;
-        let zip_code = "85200";
-        let city_name = "Fontenay-le-Comte";
+        let license_number = 912468_u32;
+        let zip_code = "79160";
+        let city_name = "St Pompain";
+        let line1 = Some("9 rue du moulin à vent");
+        let country_id = None;
         assert!(
-            update_address_for_user_by_license_number(license_number, city_name, zip_code)
-                .await
-                .is_some()
+            update_address_for_user_by_license_number(
+                license_number,
+                city_name,
+                zip_code,
+                line1,
+                country_id
+            )
+            .await
+            .is_some()
         );
     }
 
@@ -62,9 +80,148 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_count_mismatches() {
+    async fn test_fix_city_names() {
+        println!(
+            "{}",
+            update_bearer_token(0)
+                .await
+                .expect("failed to get bearer token")
+        );
         let mut content = String::new();
-        &mut File::open(".list.json")
+        File::open(".list.json")
+            .await
+            .expect("missing user list file")
+            .read_to_string(&mut content)
+            .await
+            .expect("failed to read user list file");
+        let members = serde_json::from_str::<Vec<User>>(content.as_str())
+            .expect("failed to parse user list file");
+        let mut insee_to_city_names = BTreeMap::new();
+        for member in members.iter() {
+            let metadata = &member.metadata;
+            if metadata.insee.is_none() {
+                continue;
+            }
+            match metadata {
+                Metadata {
+                    city: Some(city_name),
+                    zip_code: Some(zip_code),
+                    insee: Some(insee),
+                    ..
+                } => {
+                    let name = match insee_to_city_names.get(insee) {
+                        Some(it) => it,
+                        None => {
+                            let it = city_name_by_insee(insee).await.unwrap_or_else(|| {
+                                panic!("failed to get city name for insee: {insee}")
+                            });
+                            let _ = insee_to_city_names.insert(insee.clone(), it);
+                            insee_to_city_names.get(insee).unwrap()
+                        }
+                    };
+                    if name != city_name {
+                        if update_address(
+                            &metadata.myffme_user_id.as_ref().unwrap(),
+                            zip_code,
+                            &City {
+                                name: name.to_string(),
+                                insee: insee.clone(),
+                            },
+                            None,
+                            None,
+                        )
+                        .await
+                        .is_some()
+                        {
+                            println!("updated {city_name} -> {name} {insee}");
+                        } else {
+                            eprintln!("failed to update {city_name} -> {name} {insee}");
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        println!("{} users", members.len());
+    }
+
+    #[tokio::test]
+    async fn test_add_missing_insee() {
+        println!(
+            "{}",
+            update_bearer_token(0)
+                .await
+                .expect("failed to get bearer token")
+        );
+        let mut content = String::new();
+        File::open(".list.json")
+            .await
+            .expect("missing user list file")
+            .read_to_string(&mut content)
+            .await
+            .expect("failed to read user list file");
+        let members = serde_json::from_str::<Vec<User>>(content.as_str())
+            .expect("failed to parse user list file");
+        for member in members.iter() {
+            let metadata = &member.metadata;
+            if metadata.insee.is_some() {
+                continue;
+            }
+            if let Metadata {
+                zip_code: Some(zip_code),
+                city: Some(city_name),
+                ..
+            } = metadata
+            {
+                let normalized_city_name = normalize_city(city_name);
+                let cities = cities_by_zip_code(zip_code)
+                    .await
+                    .expect("failed to search for city");
+                let mut result = cities
+                    .iter()
+                    .find(|&it| normalize_city(&it.name) == normalized_city_name);
+                if result.is_none() {
+                    'city: for city in cities.iter() {
+                        if let Some(alternate_names) = alternate_city_names(&city.insee).await {
+                            if alternate_names
+                                .into_iter()
+                                .any(|it| normalize_city(&it) == normalized_city_name)
+                            {
+                                result = Some(city);
+                                break 'city;
+                            }
+                        }
+                    }
+                }
+                if let Some(city) = result {
+                    if update_address(
+                        &metadata.myffme_user_id.as_ref().unwrap(),
+                        zip_code,
+                        city,
+                        None,
+                        None,
+                    )
+                    .await
+                    .is_some()
+                    {
+                        println!("updated {city_name} -> {} {}", city.name, city.insee)
+                    } else {
+                        eprintln!(
+                            "failed to update {city_name} -> {} {}",
+                            city.name, city.insee
+                        );
+                        panic!("aborting");
+                    }
+                }
+            }
+        }
+        println!("{} users", members.len());
+    }
+
+    #[tokio::test]
+    async fn test_count_insee_mismatch() {
+        let mut content = String::new();
+        File::open(".list.json")
             .await
             .expect("missing user list file")
             .read_to_string(&mut content)
