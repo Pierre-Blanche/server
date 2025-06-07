@@ -33,14 +33,7 @@ async fn update_address_for_user_by_license_number(
         .into_iter()
         .find(|it| normalize_city(&it.name) == normalized_city_name)
         .expect("failed to find city");
-    update_address(
-        &user_id,
-        zip_code,
-        &city,
-        line1.map(|it| it.to_string()),
-        country_id,
-    )
-    .await
+    update_address(&user_id, zip_code, &city, line1, country_id).await
 }
 
 #[cfg(test)]
@@ -50,6 +43,16 @@ mod tests {
     use pierre_blanche_server::myffme::members_by_structure;
     use pierre_blanche_server::user::Metadata;
     use std::collections::BTreeMap;
+
+    #[tokio::test]
+    async fn test_token() {
+        println!(
+            "{}",
+            update_bearer_token(0)
+                .await
+                .expect("failed to get bearer token")
+        );
+    }
 
     #[tokio::test]
     async fn test_update() {
