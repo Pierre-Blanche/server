@@ -19,6 +19,7 @@ mod tests {
     use pierre_blanche_server::myffme::{members_by_ids, update_bearer_token};
     use pierre_blanche_server::user::Metadata;
     use std::collections::BTreeMap;
+    use tiered_server::store::Snapshot;
 
     #[tokio::test]
     async fn update_metadata() {
@@ -52,7 +53,8 @@ mod tests {
                 members_metadata.insert(ffme_user_id, metadata);
             }
         }
-        for (key, user) in entries {
+        let mut updates = Vec::new();
+        for (key, mut user) in entries {
             if let Some(metadata) = user.metadata {
                 let mut metadata =
                     serde_json::from_value::<Metadata>(metadata).expect("failed to parse metadata");
@@ -86,9 +88,20 @@ mod tests {
                         {
                             metadata.latest_structure = found.latest_structure;
                         }
+                        if changed {
+                            let metadata = serde_json::to_value(&metadata)
+                                .expect("failed to serialize metadata");
+                            user.metadata = Some(metadata);
+                            updates.push((key, user));
+                        }
                     }
                 }
             }
+        }
+        for (key, user) in updates {
+            Snapshot::set(&key, &user)
+                .await
+                .expect("failed to update user");
         }
     }
 }
