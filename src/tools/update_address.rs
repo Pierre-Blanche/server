@@ -7,6 +7,7 @@ use tiered_server::norm::normalize_city;
 #[tokio::main]
 async fn main() {}
 
+#[allow(dead_code)]
 async fn update_address_for_user_by_license_number(
     license_number: u32,
     city_name: &str,
@@ -46,11 +47,9 @@ async fn update_address_for_user_by_license_number(
 mod tests {
     use super::*;
     use pierre_blanche_server::address::{alternate_city_names, city_name_by_insee, City};
+    use pierre_blanche_server::myffme::members_by_structure;
     use pierre_blanche_server::user::Metadata;
-    use serde::Deserialize;
     use std::collections::BTreeMap;
-    use tokio::fs::File;
-    use tokio::io::AsyncReadExt;
 
     #[tokio::test]
     async fn test_update() {
@@ -72,13 +71,6 @@ mod tests {
         );
     }
 
-    #[derive(Deserialize)]
-    struct User {
-        first_name: String,
-        last_name: String,
-        metadata: Metadata,
-    }
-
     #[tokio::test]
     async fn test_fix_city_names() {
         println!(
@@ -87,15 +79,9 @@ mod tests {
                 .await
                 .expect("failed to get bearer token")
         );
-        let mut content = String::new();
-        File::open(".list.json")
+        let members = members_by_structure(10)
             .await
-            .expect("missing user list file")
-            .read_to_string(&mut content)
-            .await
-            .expect("failed to read user list file");
-        let members = serde_json::from_str::<Vec<User>>(content.as_str())
-            .expect("failed to parse user list file");
+            .expect("failed to get members");
         let mut insee_to_city_names = BTreeMap::new();
         for member in members.iter() {
             let metadata = &member.metadata;
@@ -153,15 +139,9 @@ mod tests {
                 .await
                 .expect("failed to get bearer token")
         );
-        let mut content = String::new();
-        File::open(".list.json")
+        let members = members_by_structure(10)
             .await
-            .expect("missing user list file")
-            .read_to_string(&mut content)
-            .await
-            .expect("failed to read user list file");
-        let members = serde_json::from_str::<Vec<User>>(content.as_str())
-            .expect("failed to parse user list file");
+            .expect("failed to get members");
         for member in members.iter() {
             let metadata = &member.metadata;
             if metadata.insee.is_some() {
@@ -220,15 +200,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_count_insee_mismatch() {
-        let mut content = String::new();
-        File::open(".list.json")
+        println!(
+            "{}",
+            update_bearer_token(0)
+                .await
+                .expect("failed to get bearer token")
+        );
+        let members = members_by_structure(10)
             .await
-            .expect("missing user list file")
-            .read_to_string(&mut content)
-            .await
-            .expect("failed to read user list file");
-        let members = serde_json::from_str::<Vec<User>>(content.as_str())
-            .expect("failed to parse user list file");
+            .expect("failed to get members");
         let mut count = 0_usize;
         for member in members.iter() {
             let metadata = &member.metadata;

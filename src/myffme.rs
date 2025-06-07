@@ -318,6 +318,56 @@ pub async fn members_by_structure(structure_id: u32) -> Option<Vec<Member>> {
     users_response_to_members(response).await
 }
 
+pub async fn members_by_ids(ids: &[&str]) -> Option<Vec<Member>> {
+    let response = users_response_by_ids(ids).await?;
+    users_response_to_members(response).await
+}
+
+pub async fn licensees(structure_id: u32, season: u16) -> Option<Vec<Member>> {
+    let licenses = structure_licenses(structure_id, season).await?;
+    let user_ids = licenses.keys().map(|it| it.as_str()).collect::<Vec<_>>();
+    let response = users_response_by_ids(&user_ids).await?;
+    #[cfg(test)]
+    let users = {
+        println!("users");
+        println!("{}", response.status());
+        let text = response.text().await.ok()?;
+        let file_name = format!(".licensees_{structure_id}_{season}.json");
+        tokio::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .create(true)
+            .open(&file_name)
+            .await
+            .ok()?
+            .write_all(text.as_bytes())
+            .await
+            .unwrap();
+        serde_json::from_str::<GraphqlResponse>(&text)
+            .ok()?
+            .data
+            .list
+    };
+    #[cfg(not(test))]
+    let users = response.json::<GraphqlResponse>().await.ok()?.data.list;
+    let addresses = user_addresses(&user_ids).await?;
+    let medical_certificates = user_medical_certificates(&user_ids).await?;
+    let health_questionnaires = user_health_questionnaires(&user_ids).await?;
+    let structure_ids = licenses
+        .values()
+        .map(|it| it.structure_id)
+        .collect::<Vec<_>>();
+    let structures = structures_by_ids(&structure_ids).await?;
+    Some(members(
+        users,
+        licenses,
+        addresses,
+        medical_certificates,
+        health_questionnaires,
+        structures,
+    ))
+}
+
 async fn users_response_by_license_numbers(license_numbers: &[u32]) -> Option<Response> {
     let url = Url::parse("https://back-prod.core.myffme.fr/v1/graphql").unwrap();
     let client = client();
@@ -359,7 +409,7 @@ async fn users_response_by_ids(ids: &[&str]) -> Option<Response> {
                 .map(|it| it.bearer_token.clone())?,
         )
         .json(&json!({
-            "operationName": "getUsersByUserIds",
+            "operationName": "getUsersByIds",
             "query": GRAPHQL_GET_USERS_BY_IDS,
             "variables": {
                 "ids": ids
@@ -453,116 +503,132 @@ async fn users_response_to_members(response: Response) -> Option<Vec<Member>> {
     #[cfg(not(test))]
     let users = response.json::<GraphqlResponse>().await.ok()?.data.list;
     let user_ids = users.iter().map(|it| it.id.as_str()).collect::<Vec<_>>();
-    let mut addresses = user_addresses(&user_ids).await?;
-    let mut licenses = user_licenses(&user_ids).await?;
-    let mut medical_certificates = user_medical_certificates(&user_ids).await?;
-    let mut health_questionnaires = user_health_questionnaires(&user_ids).await?;
+    let licenses = user_licenses(&user_ids).await?;
+    let addresses = user_addresses(&user_ids).await?;
+    let medical_certificates = user_medical_certificates(&user_ids).await?;
+    let health_questionnaires = user_health_questionnaires(&user_ids).await?;
     let structure_ids = licenses
         .values()
         .map(|it| it.structure_id)
         .collect::<Vec<_>>();
     let structures = structures_by_ids(&structure_ids).await?;
-    Some(
-        users
-            .into_iter()
-            .map(|it| {
-                let license = licenses.remove(&it.id);
-                let address = addresses.remove(&it.id);
-                let latest_structure = license
-                    .as_ref()
-                    .and_then(|it| structures.get(&it.structure_id).cloned());
-                let latest_license_season = license.as_ref().map(|it| it.season);
-                let license_type = if it.non_practicing.unwrap_or(false) {
-                    Some(NonPracticing)
+    Some(members(
+        users,
+        licenses,
+        addresses,
+        medical_certificates,
+        health_questionnaires,
+        structures,
+    ))
+}
+
+fn members(
+    users: Vec<User>,
+    mut licenses: BTreeMap<String, License>,
+    mut addresses: BTreeMap<String, Address>,
+    mut medical_certificates: BTreeMap<String, Document>,
+    mut health_questionnaires: BTreeMap<String, Document>,
+    structures: BTreeMap<u32, Structure>,
+) -> Vec<Member> {
+    users
+        .into_iter()
+        .map(|it| {
+            let license = licenses.remove(&it.id);
+            let address = addresses.remove(&it.id);
+            let latest_structure = license
+                .as_ref()
+                .and_then(|it| structures.get(&it.structure_id).cloned());
+            let latest_license_season = license.as_ref().map(|it| it.season);
+            let license_type = if it.non_practicing.unwrap_or(false) {
+                Some(NonPracticing)
+            } else {
+                license.and_then(|it| it.license_type)
+            };
+            let health_questionnaire = health_questionnaires.remove(&it.id).and_then(|it| {
+                if let Some(season) = latest_license_season {
+                    if it.season == season { Some(it) } else { None }
                 } else {
-                    license.and_then(|it| it.license_type)
-                };
-                let health_questionnaire = health_questionnaires.remove(&it.id).and_then(|it| {
-                    if let Some(season) = latest_license_season {
-                        if it.season == season { Some(it) } else { None }
-                    } else {
-                        None
+                    None
+                }
+            });
+            let medical_certificate = medical_certificates.remove(&it.id).unwrap_or(Document {
+                user_id: None,
+                season: 0,
+                category: 5,
+            });
+            let medical_certificate_status =
+                latest_license_season.map(|season| match medical_certificate.category {
+                    5 => {
+                        if medical_certificate.season == season {
+                            MedicalCertificateStatus::Recreational
+                        } else if let Some(questionnaire) = health_questionnaire {
+                            if questionnaire.season == season {
+                                if medical_certificate.season + 3 > season {
+                                    MedicalCertificateStatus::Recreational
+                                } else {
+                                    MedicalCertificateStatus::HealthQuestionnaire
+                                }
+                            } else {
+                                MedicalCertificateStatus::WaitingForDocument
+                            }
+                        } else {
+                            MedicalCertificateStatus::WaitingForDocument
+                        }
+                    }
+                    9 => {
+                        if medical_certificate.season == season {
+                            MedicalCertificateStatus::Competition
+                        } else if let Some(questionnaire) = health_questionnaire {
+                            if questionnaire.season == season {
+                                if medical_certificate.season + 3 > season {
+                                    MedicalCertificateStatus::Competition
+                                } else {
+                                    MedicalCertificateStatus::HealthQuestionnaire
+                                }
+                            } else {
+                                MedicalCertificateStatus::WaitingForDocument
+                            }
+                        } else {
+                            MedicalCertificateStatus::WaitingForDocument
+                        }
+                    }
+                    _ => {
+                        if medical_certificate.season == season {
+                            MedicalCertificateStatus::Recreational
+                        } else if let Some(questionnaire) = health_questionnaire {
+                            if questionnaire.season == season {
+                                MedicalCertificateStatus::HealthQuestionnaire
+                            } else {
+                                MedicalCertificateStatus::WaitingForDocument
+                            }
+                        } else {
+                            MedicalCertificateStatus::WaitingForDocument
+                        }
                     }
                 });
-                let medical_certificate = medical_certificates.remove(&it.id).unwrap_or(Document {
-                    user_id: None,
-                    season: 0,
-                    category: 5,
-                });
-                let medical_certificate_status =
-                    latest_license_season.map(|season| match medical_certificate.category {
-                        5 => {
-                            if medical_certificate.season == season {
-                                MedicalCertificateStatus::Recreational
-                            } else if let Some(questionnaire) = health_questionnaire {
-                                if questionnaire.season == season {
-                                    if medical_certificate.season + 3 > season {
-                                        MedicalCertificateStatus::Recreational
-                                    } else {
-                                        MedicalCertificateStatus::HealthQuestionnaire
-                                    }
-                                } else {
-                                    MedicalCertificateStatus::WaitingForDocument
-                                }
-                            } else {
-                                MedicalCertificateStatus::WaitingForDocument
-                            }
-                        }
-                        9 => {
-                            if medical_certificate.season == season {
-                                MedicalCertificateStatus::Competition
-                            } else if let Some(questionnaire) = health_questionnaire {
-                                if questionnaire.season == season {
-                                    if medical_certificate.season + 3 > season {
-                                        MedicalCertificateStatus::Competition
-                                    } else {
-                                        MedicalCertificateStatus::HealthQuestionnaire
-                                    }
-                                } else {
-                                    MedicalCertificateStatus::WaitingForDocument
-                                }
-                            } else {
-                                MedicalCertificateStatus::WaitingForDocument
-                            }
-                        }
-                        _ => {
-                            if medical_certificate.season == season {
-                                MedicalCertificateStatus::Recreational
-                            } else if let Some(questionnaire) = health_questionnaire {
-                                if questionnaire.season == season {
-                                    MedicalCertificateStatus::HealthQuestionnaire
-                                } else {
-                                    MedicalCertificateStatus::WaitingForDocument
-                                }
-                            } else {
-                                MedicalCertificateStatus::WaitingForDocument
-                            }
-                        }
-                    });
-                let (insee, city, zip_code) = address
-                    .map(|it| (it.insee, it.city, it.zip_code))
-                    .unwrap_or((None, None, None));
-                Member {
-                    first_name: it.first_name,
-                    last_name: it.last_name,
-                    email: it.email.unwrap_or_else(|| it.alt_email.unwrap()),
-                    dob: it.dob,
-                    metadata: Metadata {
-                        myffme_user_id: Some(it.id),
-                        license_number: Some(it.license_number),
-                        gender: Some(it.gender),
-                        insee,
-                        city,
-                        zip_code,
-                        license_type,
-                        medical_certificate_status,
-                        latest_license_season,
-                        latest_structure,
-                    },
-                }
-            })
-            .collect(),
-    )
+            let (insee, city, zip_code) = address
+                .map(|it| (it.insee, it.city, it.zip_code))
+                .unwrap_or((None, None, None));
+            Member {
+                first_name: it.first_name,
+                last_name: it.last_name,
+                email: it.email.unwrap_or_else(|| it.alt_email.unwrap()),
+                dob: it.dob,
+                metadata: Metadata {
+                    myffme_user_id: Some(it.id),
+                    license_number: Some(it.license_number),
+                    gender: Some(it.gender),
+                    insee,
+                    city,
+                    zip_code,
+                    license_type,
+                    medical_certificate_status,
+                    latest_license_season,
+                    latest_structure,
+                },
+            }
+        })
+        .collect()
 }
 
 async fn user_medical_certificates(ids: &[&str]) -> Option<BTreeMap<String, Document>> {
@@ -797,6 +863,78 @@ async fn user_licenses(ids: &[&str]) -> Option<BTreeMap<String, License>> {
             "query": GRAPHQL_GET_LICENSES_BY_USER_IDS,
             "variables": {
                 "ids": ids,
+            }
+        }))
+        .build()
+        .ok()?;
+    let response = client.execute(request).await.ok()?;
+    #[derive(Deserialize)]
+    struct LicenseList {
+        list: Vec<License>,
+    }
+    #[derive(Deserialize)]
+    struct GraphqlResponse {
+        data: LicenseList,
+    }
+    #[cfg(test)]
+    let licenses = {
+        println!("licenses");
+        println!("POST {}", url.as_str());
+        println!("{}", response.status());
+        let text = response.text().await.ok()?;
+        let file_name = format!(".licenses.json");
+        tokio::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .create(true)
+            .open(&file_name)
+            .await
+            .ok()?
+            .write_all(text.as_bytes())
+            .await
+            .unwrap();
+        serde_json::from_str::<GraphqlResponse>(&text)
+            .map_err(|e| {
+                eprintln!("{e:?}");
+                e
+            })
+            .ok()?
+            .data
+            .list
+    };
+    #[cfg(not(test))]
+    let licenses = response.json::<GraphqlResponse>().await.ok()?.data.list;
+    Some(
+        licenses
+            .into_iter()
+            .map(|mut license| {
+                let id = license.user_id.take().unwrap();
+                (id, license)
+            })
+            .collect(),
+    )
+}
+
+async fn structure_licenses(structure_id: u32, season: u16) -> Option<BTreeMap<String, License>> {
+    let url = Url::parse("https://back-prod.core.myffme.fr/v1/graphql").unwrap();
+    let client = client();
+    let request = client
+        .post(url.as_str())
+        .header(ORIGIN, HeaderValue::from_static("https://www.myffme.fr"))
+        .header(REFERER, HeaderValue::from_static("https://www.myffme.fr/"))
+        .header(X_HASURA_ROLE, ADMIN)
+        .header(
+            AUTHORIZATION,
+            MYFFME_AUTHORIZATION
+                .get_ref()
+                .map(|it| it.bearer_token.clone())?,
+        )
+        .json(&json!({
+            "operationName": "getLicensesByStructureIdAndSeason",
+            "query": GRAPHQL_GET_LICENSES_BY_STRUCTURE_ID_AND_SEASON,
+            "variables": {
+                "structure_id": structure_id,
+                "season": season,
             }
         }))
         .build()
@@ -1318,6 +1456,24 @@ const GRAPHQL_GET_LICENSES_BY_USER_IDS: &str = "\
     }\
 ";
 
+const GRAPHQL_GET_LICENSES_BY_STRUCTURE_ID_AND_SEASON: &str = "\
+    query getLicensesByStructureIdAndSeason(
+        $structure_id: Int!
+        $season: Int!
+    ) {
+        list: licence(
+            where: { structure_id: { _eq: $structure_id }, season_id: { _eq: $season } }
+        ) {
+            product_id
+            non_practicing
+            structure_id
+            status
+            user_id
+            season: season_id
+        }
+    }\
+";
+
 const GRAPHQL_GET_MEDICAL_CERTIFICATES_BY_USER_IDS: &str = "\
     query getMedicalCertificatesByUserIds(
         $ids: [uuid!]!
@@ -1488,29 +1644,77 @@ mod tests {
         let result = results.first().unwrap();
         assert_eq!(19770522, result.dob);
         assert_eq!("DAVID", result.last_name);
-        println!("{}", serde_json::to_string(result).unwrap())
+    }
+
+    #[tokio::test]
+    async fn test_member_by_ids() {
+        assert!(update_bearer_token(0).await.is_some());
+        let t0 = SystemTime::now();
+        let results = members_by_ids(
+            [
+                "6692903b-8032-43ea-8cd9-530f14bf5324",
+                "5f5e0d27-cf50-42ea-89f8-f1649a2ef6aa",
+            ]
+            .as_slice(),
+        )
+        .await
+        .unwrap();
+        let elapsed = t0.elapsed().unwrap();
+        println!("{elapsed:?}");
+        assert_eq!(2, results.len());
+        let result = results
+            .iter()
+            .find(|&it| it.metadata.license_number == Some(33109))
+            .unwrap();
+        assert_eq!(19770522, result.dob);
+        assert_eq!("DAVID", result.last_name);
     }
 
     #[tokio::test]
     async fn test_list() {
         assert!(update_bearer_token(0).await.is_some());
         let t0 = SystemTime::now();
-        let results = members_by_structure(10).await.unwrap();
+        let all_members = members_by_structure(10).await.unwrap();
         let elapsed = t0.elapsed().unwrap();
         println!("{elapsed:?}");
-        assert!(!results.is_empty());
-        println!("{}", results.len());
-        println!("{}", serde_json::to_string(&results).unwrap());
+        assert!(!all_members.is_empty());
+        // println!("{}", all_members.len());
+        // println!("{}", serde_json::to_string(&all_members).unwrap());
         tokio::fs::OpenOptions::new()
             .write(true)
             .truncate(true)
             .create(true)
-            .open(".list.json")
+            .open(".members.json")
             .await
             .ok()
             .unwrap()
-            .write_all(serde_json::to_string(&results).unwrap().as_bytes())
+            .write_all(serde_json::to_string(&all_members).unwrap().as_bytes())
             .await
             .unwrap();
+        let season = current_season(None);
+        let t0 = SystemTime::now();
+        let licensees = licensees(10, season).await.unwrap();
+        let elapsed = t0.elapsed().unwrap();
+        println!("{elapsed:?}");
+        tokio::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .create(true)
+            .open(format!(".licensees_{season}.json"))
+            .await
+            .ok()
+            .unwrap()
+            .write_all(serde_json::to_string(&all_members).unwrap().as_bytes())
+            .await
+            .unwrap();
+        for licensee in licensees {
+            assert!(
+                all_members
+                    .iter()
+                    .find(|it| it.metadata.myffme_user_id.as_ref().unwrap()
+                        == licensee.metadata.myffme_user_id.as_ref().unwrap())
+                    .is_some()
+            )
+        }
     }
 }

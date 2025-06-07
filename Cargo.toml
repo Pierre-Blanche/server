@@ -8,8 +8,8 @@ name = "pierre_blanche_server"
 path = "src/main.rs"
 
 [[bin]]
-name = "add_users_metadata"
-path = "src/tools/add_users_metadata.rs"
+name = "update_users_metadata"
+path = "src/tools/update_users_metadata.rs"
 
 [[bin]]
 name = "update_address"

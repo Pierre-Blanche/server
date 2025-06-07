@@ -18,7 +18,7 @@ pub struct Metadata {
     pub latest_structure: Option<Structure>,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Eq, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum Gender {
     Female,
@@ -26,7 +26,7 @@ pub enum Gender {
     Unspecified,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Eq, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum LicenseType {
     Adult,
@@ -37,7 +37,7 @@ pub enum LicenseType {
     NonPracticing,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Eq, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum MedicalCertificateStatus {
     Recreational,
