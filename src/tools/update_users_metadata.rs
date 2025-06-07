@@ -16,7 +16,7 @@ async fn user_entries() -> Vec<(String, User)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pierre_blanche_server::myffme::{members_by_ids, update_bearer_token};
+    use pierre_blanche_server::myffme::{members_by_ids, update_myffme_bearer_token};
     use pierre_blanche_server::user::Metadata;
     use std::collections::BTreeMap;
     use tiered_server::store::Snapshot;
@@ -39,7 +39,7 @@ mod tests {
         }
         println!(
             "{}",
-            update_bearer_token(0)
+            update_myffme_bearer_token(0)
                 .await
                 .expect("failed to get bearer token")
         );

@@ -3,6 +3,8 @@ use pinboard::Pinboard;
 use std::sync::LazyLock;
 use tracing::debug;
 
+pub(crate) const USERAGENT_VALIDITY_SECONDS: u32 = 250_000; // ~3days
+
 pub(crate) struct ChromeVersion {
     pub(crate) chrome_version: u16,
     pub(crate) timestamp: u32,

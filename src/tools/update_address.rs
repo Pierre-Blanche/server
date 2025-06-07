@@ -1,6 +1,6 @@
 use pierre_blanche_server::address::cities_by_zip_code;
 use pierre_blanche_server::myffme::{
-    member_by_license_number, update_address, update_bearer_token,
+    member_by_license_number, update_address, update_myffme_bearer_token,
 };
 use tiered_server::norm::normalize_city;
 
@@ -17,7 +17,7 @@ async fn update_address_for_user_by_license_number(
 ) -> Option<()> {
     println!(
         "{}",
-        update_bearer_token(0)
+        update_myffme_bearer_token(0)
             .await
             .expect("failed to get bearer token")
     );
@@ -48,7 +48,7 @@ mod tests {
     async fn test_token() {
         println!(
             "{}",
-            update_bearer_token(0)
+            update_myffme_bearer_token(0)
                 .await
                 .expect("failed to get bearer token")
         );
@@ -78,7 +78,7 @@ mod tests {
     async fn test_fix_city_names() {
         println!(
             "{}",
-            update_bearer_token(0)
+            update_myffme_bearer_token(0)
                 .await
                 .expect("failed to get bearer token")
         );
@@ -138,7 +138,7 @@ mod tests {
     async fn test_add_missing_insee() {
         println!(
             "{}",
-            update_bearer_token(0)
+            update_myffme_bearer_token(0)
                 .await
                 .expect("failed to get bearer token")
         );
@@ -205,7 +205,7 @@ mod tests {
     async fn test_count_insee_mismatch() {
         println!(
             "{}",
-            update_bearer_token(0)
+            update_myffme_bearer_token(0)
                 .await
                 .expect("failed to get bearer token")
         );

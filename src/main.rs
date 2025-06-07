@@ -1,7 +1,7 @@
 use http_body_util::{Either, Empty, Full};
 use hyper::body::{Bytes, Incoming};
 use hyper::{Request, Response};
-use pierre_blanche_server::myffme::ffme_auth_update_loop;
+use pierre_blanche_server::update::update_loop;
 use pinboard::NonEmptyPinboard;
 use std::sync::Arc;
 use tiered_server::api::Extension;
@@ -49,6 +49,6 @@ async fn main() {
             "pierre_blanche_server=debug,tiered_server=warn,zip_static_handler=info,hyper=info",
         ))
         .init();
-    ffme_auth_update_loop().await;
+    update_loop().await;
     serve(Box::leak(Box::new(ApiExtension))).await;
 }

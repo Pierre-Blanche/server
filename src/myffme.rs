@@ -1,5 +1,4 @@
 use crate::address::City;
-use crate::chrome::{update_chrome_version, CHROME_VERSION};
 use crate::http_client::json_client;
 use crate::user::LicenseType::NonPracticing;
 use crate::user::{Gender, LicenseType, MedicalCertificateStatus, Metadata, Structure};
@@ -13,65 +12,15 @@ use serde_json::json;
 use std::collections::{BTreeMap, BTreeSet};
 use std::str::from_utf8;
 use std::sync::LazyLock;
-use std::thread;
-use std::time::{Duration, SystemTime};
 use tiered_server::env::{secret_value, ConfigurationKey};
 use tiered_server::norm::{normalize_first_name, normalize_last_name};
 #[allow(unused_imports)]
 use tokio::io::AsyncWriteExt;
-use tokio::time::sleep;
 use tracing::debug;
 
-pub async fn ffme_auth_update_loop() {
-    let timestamp = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as u32;
-    update_chrome_version(timestamp).await;
-    let _ = update_bearer_token(timestamp).await;
-    thread::spawn(move || {
-        tokio::runtime::Builder::new_current_thread()
-            .enable_time()
-            .enable_io()
-            .build()
-            .unwrap()
-            .block_on(async {
-                loop {
-                    let timestamp = SystemTime::now()
-                        .duration_since(SystemTime::UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs() as u32;
-                    let chrome_version_timestamp =
-                        CHROME_VERSION.get_ref().map(|it| it.timestamp).unwrap_or(0);
-                    let mut success = true;
-                    if timestamp > chrome_version_timestamp + USERAGENT_VALIDITY_SECONDS
-                        && !update_chrome_version(timestamp).await
-                    {
-                        success = false;
-                    }
-                    let token_timestamp = MYFFME_AUTHORIZATION
-                        .get_ref()
-                        .map(|it| it.timestamp)
-                        .unwrap_or(0);
-                    if timestamp > token_timestamp + AUTHORIZATION_VALIDITY_SECONDS
-                        && update_bearer_token(timestamp).await.is_none()
-                    {
-                        success = false;
-                    }
-                    sleep(Duration::from_secs(if success {
-                        (15_000 + fastrand::i16(-1500..1500)) as u64
-                    } else {
-                        (600 + fastrand::i16(-100..100)) as u64
-                    }))
-                    .await;
-                }
-            })
-    });
-}
-
-struct Authorization {
-    bearer_token: HeaderValue,
-    timestamp: u32,
+pub(crate) struct Authorization {
+    pub(crate) bearer_token: HeaderValue,
+    pub(crate) timestamp: u32,
 }
 
 #[derive(Deserialize)]
@@ -79,8 +28,7 @@ struct Token {
     token: String,
 }
 
-const AUTHORIZATION_VALIDITY_SECONDS: u32 = 36_000; // 10h
-const USERAGENT_VALIDITY_SECONDS: u32 = 250_000; // ~3days
+pub(crate) const MYFFME_AUTHORIZATION_VALIDITY_SECONDS: u32 = 36_000; // 10h
 
 const USERNAME_KEY: ConfigurationKey = ConfigurationKey::Other {
     variable_name: "MYFFME_USERNAME",
@@ -95,9 +43,10 @@ static USERNAME: LazyLock<&'static str> =
 static PASSWORD: LazyLock<&'static str> =
     LazyLock::new(|| secret_value(PASSWORD_KEY).expect("myffme password not set"));
 
-static MYFFME_AUTHORIZATION: LazyLock<Pinboard<Authorization>> = LazyLock::new(Pinboard::new_empty);
+pub(crate) static MYFFME_AUTHORIZATION: LazyLock<Pinboard<Authorization>> =
+    LazyLock::new(Pinboard::new_empty);
 
-pub async fn update_bearer_token(timestamp: u32) -> Option<String> {
+pub async fn update_myffme_bearer_token(timestamp: u32) -> Option<String> {
     match json_client()
         .post("https://app.myffme.fr/api/auth/login")
         .json(&json!({
@@ -128,32 +77,6 @@ pub async fn update_bearer_token(timestamp: u32) -> Option<String> {
             debug!("failed to get login response:\n{err:?}");
             None
         }
-    }
-}
-
-const APPROXIMATE_NUMBER_OF_SECS_IN_YEAR: u32 = 31_557_600;
-
-pub fn current_season(timestamp: Option<u32>) -> u16 {
-    let year_2020_utc_start_timestamp = 1577836800_u32;
-    let elapsed = timestamp.unwrap_or_else(|| {
-        SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as u32
-    }) - year_2020_utc_start_timestamp;
-    // can be off by 1 but won't change the result
-    let years = elapsed / APPROXIMATE_NUMBER_OF_SECS_IN_YEAR;
-    let current_year_elapsed_seconds = elapsed - years * APPROXIMATE_NUMBER_OF_SECS_IN_YEAR;
-    let years = years as u16;
-    let seconds_between_jan_and_august = if years % 4 == 0 {
-        18_316_800
-    } else {
-        18_230_400
-    };
-    if current_year_elapsed_seconds > seconds_between_jan_and_august {
-        2020 + years + 1
-    } else {
-        2020 + years
     }
 }
 
@@ -1594,49 +1517,12 @@ const GRAPHQL_INSERT_ADDRESS_CITY: &str = "\
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::{Datelike, NaiveDate, NaiveDateTime, TimeZone, Utc};
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    #[test]
-    fn test_current_season() {
-        let date = Utc.from_utc_datetime(&NaiveDateTime::from(
-            NaiveDate::from_ymd_opt(2021, 03, 12).unwrap(),
-        ));
-        let season = current_season(Some(date.timestamp() as u32));
-        assert_eq!(2021, season);
-        let date = Utc.from_utc_datetime(&NaiveDateTime::from(
-            NaiveDate::from_ymd_opt(2021, 09, 01).unwrap(),
-        ));
-        let season = current_season(Some(date.timestamp() as u32));
-        assert_eq!(2022, season);
-        let date = Utc
-            .timestamp_millis_opt(
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_millis() as i64,
-            )
-            .unwrap();
-        let season = current_season(None);
-        assert_eq!(season, current_season(Some(date.timestamp() as u32)));
-        let mut year = date.year() as u16;
-        let month = date.month() as u16;
-        let day = date.day() as u16;
-        if month == 7 && day > 29 {
-            return;
-        }
-        if month == 8 && day < 3 {
-            return;
-        }
-        if month == 8 {
-            year += 1;
-        }
-        assert_eq!(year, season);
-    }
+    use crate::season::current_season;
+    use std::time::SystemTime;
 
     #[tokio::test]
     async fn test_member_by_license_number() {
-        assert!(update_bearer_token(0).await.is_some());
+        assert!(update_myffme_bearer_token(0).await.is_some());
         let t0 = SystemTime::now();
         let result = member_by_license_number(154316).await.unwrap();
         let elapsed = t0.elapsed().unwrap();
@@ -1647,7 +1533,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_licensee_by_last_name_and_dob() {
-        assert!(update_bearer_token(0).await.is_some());
+        assert!(update_myffme_bearer_token(0).await.is_some());
         let t0 = SystemTime::now();
         let results = member_by_name_and_dob("Jerome", "DAVID", 19770522)
             .await
@@ -1663,7 +1549,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_member_by_ids() {
-        assert!(update_bearer_token(0).await.is_some());
+        assert!(update_myffme_bearer_token(0).await.is_some());
         let t0 = SystemTime::now();
         let results = members_by_ids(
             [
@@ -1687,7 +1573,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_update_email() {
-        assert!(update_bearer_token(0).await.is_some());
+        assert!(update_myffme_bearer_token(0).await.is_some());
         let t0 = SystemTime::now();
         let result = update_email(
             "6692903b-8032-43ea-8cd9-530f14bf5324",
@@ -1702,7 +1588,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_list() {
-        assert!(update_bearer_token(0).await.is_some());
+        assert!(update_myffme_bearer_token(0).await.is_some());
         let t0 = SystemTime::now();
         let all_members = members_by_structure(10).await.unwrap();
         let elapsed = t0.elapsed().unwrap();
