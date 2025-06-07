@@ -41,7 +41,7 @@ features = []
 
 [dependencies.reqwest]
 version = "0.12"
-features = ["blocking", "rustls-tls", "multipart", "json", "deflate", "gzip", "brotli"]
+features = ["blocking", "rustls-tls", "multipart", "json", "deflate", "gzip", "brotli", "zstd"]
 
 [dependencies.http-body-util]
 version = "0.1"
@@ -50,6 +50,11 @@ features = []
 
 [dependencies.pinboard]
 version = "2.2"
+default-features = false
+features = []
+
+[dependencies.scraper]
+version = "0.23"
 default-features = false
 features = []
 

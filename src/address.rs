@@ -1,55 +1,10 @@
-use crate::chrome::CHROME_VERSION;
+use crate::http_client::json_client;
 use crate::myffme::Address;
-use hyper::header::{HeaderName, HeaderValue, ACCEPT, CONTENT_TYPE};
-use hyper::HeaderMap;
-use reqwest::redirect::Policy;
-use reqwest::tls::Version;
-use reqwest::{Client, Url};
+use reqwest::Url;
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
-use tiered_server::headers::JSON;
 #[allow(unused_imports)]
 use tokio::io::AsyncWriteExt;
 use tracing::debug;
-
-fn client() -> Client {
-    let chrome_version = CHROME_VERSION
-        .get_ref()
-        .map(|it| it.chrome_version)
-        .unwrap_or(135);
-    let mut headers = HeaderMap::new();
-    headers.insert(ACCEPT, JSON);
-    headers.insert(CONTENT_TYPE, JSON);
-    headers.insert(
-        HeaderName::from_static("sec-ch-ua"),
-        HeaderValue::try_from(format!("\"Google Chrome\";v=\"{chrome_version}\", \"Not-A.Brand\";v=\"8\", \"Chromium\";v=\"{chrome_version}\"")).unwrap(),
-    );
-    headers.insert(
-        HeaderName::from_static("sec-ch-ua-mobile"),
-        HeaderValue::from_static("?0"),
-    );
-    headers.insert(
-        HeaderName::from_static("sec-ch-ua-platform"),
-        HeaderValue::from_static("\"Windows\""),
-    );
-    let user_agent = format!(
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{chrome_version}.0.0.0 Safari/537.36"
-    );
-    Client::builder()
-        .https_only(true)
-        .use_rustls_tls()
-        .min_tls_version(Version::TLS_1_3)
-        .user_agent(HeaderValue::try_from(user_agent).unwrap())
-        .http2_prior_knowledge()
-        .redirect(Policy::none())
-        .default_headers(headers)
-        .deflate(true)
-        .gzip(true)
-        .brotli(true)
-        .timeout(Duration::from_secs(3))
-        .build()
-        .unwrap()
-}
 
 #[derive(Deserialize, Serialize)]
 pub struct City {
@@ -66,7 +21,7 @@ pub async fn city_name_by_insee(insee: &str) -> Option<String> {
     query.append_pair("fields", "nom");
     drop(query);
     debug!("GET {}", url.as_str());
-    let client = client();
+    let client = json_client();
     let request = client.get(url.as_str()).build().ok()?;
     let response = client.execute(request).await.ok()?;
     #[cfg(test)]
@@ -97,7 +52,7 @@ pub async fn alternate_city_names(insee_code: &str) -> Option<Vec<String>> {
     query.append_pair("chefLieu", insee_code);
     drop(query);
     debug!("GET {}", url.as_str());
-    let client = client();
+    let client = json_client();
     let request = client.get(url.as_str()).build().ok()?;
     let response = client.execute(request).await.ok()?;
     #[derive(Deserialize)]
@@ -134,7 +89,7 @@ pub async fn cities_by_zip_code(zip_code: &str) -> Option<Vec<City>> {
     query.append_pair("codePostal", zip_code);
     drop(query);
     debug!("GET {}", url.as_str());
-    let client = client();
+    let client = json_client();
     let request = client.get(url.as_str()).build().ok()?;
     let response = client.execute(request).await.ok()?;
     #[cfg(test)]
@@ -188,7 +143,7 @@ async fn address(insee: Option<&str>, text: &str) -> Option<Vec<Address>> {
     }
     drop(query);
     debug!("GET {}", url.as_str());
-    let client = client();
+    let client = json_client();
     let request = client.get(url.as_str()).build().ok()?;
     let response = client.execute(request).await.ok()?;
     #[cfg(test)]

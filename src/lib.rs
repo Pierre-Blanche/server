@@ -1,4 +1,6 @@
 pub mod address;
-pub mod chrome;
+mod chrome;
+mod http_client;
+pub mod mycompet;
 pub mod myffme;
 pub mod user;

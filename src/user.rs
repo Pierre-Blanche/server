@@ -16,6 +16,8 @@ pub struct Metadata {
     pub latest_license_season: Option<u16>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub latest_structure: Option<Structure>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub competition_results: Option<Vec<CompetitionResult>>,
 }
 
 #[derive(Deserialize, Serialize, Eq, PartialEq)]
@@ -53,4 +55,17 @@ pub struct Structure {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code: Option<String>,
     pub department: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Competition {
+    pub season: u16,
+    pub name: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct CompetitionResult {
+    pub rank: u16,
+    pub category_name: String,
+    pub competition: Competition,
 }

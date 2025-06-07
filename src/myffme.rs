@@ -1,14 +1,12 @@
 use crate::address::City;
-use crate::chrome::{ChromeVersion, CHROME_VERSION};
+use crate::chrome::{update_chrome_version, CHROME_VERSION};
+use crate::http_client::json_client;
 use crate::user::LicenseType::NonPracticing;
 use crate::user::{Gender, LicenseType, MedicalCertificateStatus, Metadata, Structure};
-use hyper::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, ORIGIN, REFERER};
+use hyper::header::{AUTHORIZATION, ORIGIN, REFERER};
 use hyper::http::{HeaderName, HeaderValue};
 use pinboard::Pinboard;
-use reqwest::header::HeaderMap;
-use reqwest::redirect::Policy;
-use reqwest::tls::Version;
-use reqwest::{Client, Response, Url};
+use reqwest::{Response, Url};
 use serde::de::Error;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -18,7 +16,6 @@ use std::sync::LazyLock;
 use std::thread;
 use std::time::{Duration, SystemTime};
 use tiered_server::env::{secret_value, ConfigurationKey};
-use tiered_server::headers::JSON;
 use tiered_server::norm::{normalize_first_name, normalize_last_name};
 #[allow(unused_imports)]
 use tokio::io::AsyncWriteExt;
@@ -100,86 +97,8 @@ static PASSWORD: LazyLock<&'static str> =
 
 static MYFFME_AUTHORIZATION: LazyLock<Pinboard<Authorization>> = LazyLock::new(Pinboard::new_empty);
 
-fn client() -> Client {
-    let chrome_version = CHROME_VERSION
-        .get_ref()
-        .map(|it| it.chrome_version)
-        .unwrap_or(135);
-    let mut headers = HeaderMap::new();
-    headers.insert(ACCEPT, JSON);
-    headers.insert(CONTENT_TYPE, JSON);
-    headers.insert(
-        HeaderName::from_static("sec-ch-ua"),
-        HeaderValue::try_from(format!("\"Google Chrome\";v=\"{chrome_version}\", \"Not-A.Brand\";v=\"8\", \"Chromium\";v=\"{chrome_version}\"")).unwrap(),
-    );
-    headers.insert(
-        HeaderName::from_static("sec-ch-ua-mobile"),
-        HeaderValue::from_static("?0"),
-    );
-    headers.insert(
-        HeaderName::from_static("sec-ch-ua-platform"),
-        HeaderValue::from_static("\"Windows\""),
-    );
-    let user_agent = format!(
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{chrome_version}.0.0.0 Safari/537.36"
-    );
-    Client::builder()
-        .https_only(true)
-        .use_rustls_tls()
-        .min_tls_version(Version::TLS_1_3)
-        .user_agent(HeaderValue::try_from(user_agent).unwrap())
-        .http2_prior_knowledge()
-        .redirect(Policy::none())
-        .default_headers(headers)
-        .deflate(true)
-        .gzip(true)
-        .brotli(true)
-        .connect_timeout(Duration::from_secs(3))
-        .read_timeout(Duration::from_secs(15))
-        .build()
-        .unwrap()
-}
-
-async fn update_chrome_version(timestamp: u32) -> bool {
-    match client()
-        .get("https://raw.githubusercontent.com/chromium/chromium/main/chrome/VERSION")
-        .send()
-        .await
-    {
-        Ok(response) => match response.text().await {
-            Ok(text) => {
-                match text.lines().next().and_then(|it| {
-                    let mut split = it.split('=');
-                    let _ = split.next();
-                    split.next().and_then(|it| it.parse::<u16>().ok())
-                }) {
-                    Some(chrome_version) => {
-                        CHROME_VERSION.set(ChromeVersion {
-                            chrome_version: chrome_version - 2,
-                            timestamp,
-                        });
-                        true
-                    }
-                    None => {
-                        debug!("failed to parse chrome version");
-                        false
-                    }
-                }
-            }
-            Err(err) => {
-                debug!("failed to get chrome verson file from github:\n{err:?}");
-                false
-            }
-        },
-        Err(err) => {
-            debug!("failed to get response from github for the chrome verson file:\n{err:?}");
-            false
-        }
-    }
-}
-
 pub async fn update_bearer_token(timestamp: u32) -> Option<String> {
-    match client()
+    match json_client()
         .post("https://app.myffme.fr/api/auth/login")
         .json(&json!({
             "username": *USERNAME,
@@ -370,7 +289,7 @@ pub async fn licensees(structure_id: u32, season: u16) -> Option<Vec<Member>> {
 
 async fn users_response_by_license_numbers(license_numbers: &[u32]) -> Option<Response> {
     let url = Url::parse("https://back-prod.core.myffme.fr/v1/graphql").unwrap();
-    let client = client();
+    let client = json_client();
     let request = client
         .post(url.as_str())
         .header(ORIGIN, HeaderValue::from_static("https://www.myffme.fr"))
@@ -396,7 +315,7 @@ async fn users_response_by_license_numbers(license_numbers: &[u32]) -> Option<Re
 
 async fn users_response_by_ids(ids: &[&str]) -> Option<Response> {
     let url = Url::parse("https://back-prod.core.myffme.fr/v1/graphql").unwrap();
-    let client = client();
+    let client = json_client();
     let request = client
         .post(url.as_str())
         .header(ORIGIN, HeaderValue::from_static("https://www.myffme.fr"))
@@ -422,7 +341,7 @@ async fn users_response_by_ids(ids: &[&str]) -> Option<Response> {
 
 async fn users_response_by_structure(structure_id: u32) -> Option<Response> {
     let url = Url::parse("https://back-prod.core.myffme.fr/v1/graphql").unwrap();
-    let client = client();
+    let client = json_client();
     let request = client
         .post(url.as_str())
         .header(ORIGIN, HeaderValue::from_static("https://www.myffme.fr"))
@@ -454,7 +373,7 @@ async fn users_response_by_dob(dob: u32) -> Option<Response> {
     let dd = from_utf8(&dob[6..]).unwrap();
     let dob = format!("{yyyy}-{mm}-{dd}");
     let url = Url::parse("https://back-prod.core.myffme.fr/v1/graphql").unwrap();
-    let client = client();
+    let client = json_client();
     let request = client
         .post(url.as_str())
         .header(ORIGIN, HeaderValue::from_static("https://www.myffme.fr"))
@@ -625,6 +544,7 @@ fn members(
                     medical_certificate_status,
                     latest_license_season,
                     latest_structure,
+                    ..Default::default()
                 },
             }
         })
@@ -633,7 +553,7 @@ fn members(
 
 async fn user_medical_certificates(ids: &[&str]) -> Option<BTreeMap<String, Document>> {
     let url = Url::parse("https://back-prod.core.myffme.fr/v1/graphql").unwrap();
-    let client = client();
+    let client = json_client();
     let request = client
         .post(url.as_str())
         .header(ORIGIN, HeaderValue::from_static("https://www.myffme.fr"))
@@ -704,7 +624,7 @@ async fn user_medical_certificates(ids: &[&str]) -> Option<BTreeMap<String, Docu
 
 async fn user_health_questionnaires(ids: &[&str]) -> Option<BTreeMap<String, Document>> {
     let url = Url::parse("https://back-prod.core.myffme.fr/v1/graphql").unwrap();
-    let client = client();
+    let client = json_client();
     let request = client
         .post(url.as_str())
         .header(ORIGIN, HeaderValue::from_static("https://www.myffme.fr"))
@@ -775,7 +695,7 @@ async fn user_health_questionnaires(ids: &[&str]) -> Option<BTreeMap<String, Doc
 
 async fn user_addresses(ids: &[&str]) -> Option<BTreeMap<String, Address>> {
     let url = Url::parse("https://back-prod.core.myffme.fr/v1/graphql").unwrap();
-    let client = client();
+    let client = json_client();
     let request = client
         .post(url.as_str())
         .header(ORIGIN, HeaderValue::from_static("https://www.myffme.fr"))
@@ -846,7 +766,7 @@ async fn user_addresses(ids: &[&str]) -> Option<BTreeMap<String, Address>> {
 
 async fn user_licenses(ids: &[&str]) -> Option<BTreeMap<String, License>> {
     let url = Url::parse("https://back-prod.core.myffme.fr/v1/graphql").unwrap();
-    let client = client();
+    let client = json_client();
     let request = client
         .post(url.as_str())
         .header(ORIGIN, HeaderValue::from_static("https://www.myffme.fr"))
@@ -917,7 +837,7 @@ async fn user_licenses(ids: &[&str]) -> Option<BTreeMap<String, License>> {
 
 async fn structure_licenses(structure_id: u32, season: u16) -> Option<BTreeMap<String, License>> {
     let url = Url::parse("https://back-prod.core.myffme.fr/v1/graphql").unwrap();
-    let client = client();
+    let client = json_client();
     let request = client
         .post(url.as_str())
         .header(ORIGIN, HeaderValue::from_static("https://www.myffme.fr"))
@@ -989,7 +909,7 @@ async fn structure_licenses(structure_id: u32, season: u16) -> Option<BTreeMap<S
 
 async fn structures_by_ids(ids: &[u32]) -> Option<BTreeMap<u32, Structure>> {
     let url = Url::parse("https://back-prod.core.myffme.fr/v1/graphql").unwrap();
-    let client = client();
+    let client = json_client();
     let request = client
         .post(url.as_str())
         .header(ORIGIN, HeaderValue::from_static("https://www.myffme.fr"))
@@ -1099,7 +1019,7 @@ pub async fn update_address(
     country_id: Option<u16>,
 ) -> Option<()> {
     let url = Url::parse("https://back-prod.core.myffme.fr/v1/graphql").unwrap();
-    let client = client();
+    let client = json_client();
     let request = client
         .post(url.as_str())
         .header(ORIGIN, HeaderValue::from_static("https://www.myffme.fr"))
@@ -1171,7 +1091,7 @@ pub async fn update_address(
         if affected_rows > 0 {
             Some(())
         } else {
-            let client = crate::myffme::client();
+            let client = crate::myffme::json_client();
             let request = client
                 .post(url.as_str())
                 .header(ORIGIN, HeaderValue::from_static("https://www.myffme.fr"))
