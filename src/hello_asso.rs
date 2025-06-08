@@ -7,6 +7,8 @@ use serde_json::json;
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
 use tiered_server::env::{secret_value, ConfigurationKey};
+use tiered_server::server::DOMAIN_APEX;
+use tiered_server::store::Snapshot;
 use tiered_server::user::User;
 use tracing::debug;
 
@@ -42,6 +44,10 @@ const API_ENDPOINT_KEY: ConfigurationKey = ConfigurationKey::Other {
     variable_name: "HELLO_ASSO_API_ENDPOINT",
 };
 
+const ORG_SLUG_KEY: ConfigurationKey = ConfigurationKey::Other {
+    variable_name: "HELLO_ASSO_ORG_SLUG",
+};
+
 static CLIENT_ID: LazyLock<&'static str> =
     LazyLock::new(|| secret_value(CLIENT_ID_KEY).expect("hello asso client id not set"));
 
@@ -55,6 +61,9 @@ static OAUTH_ENDPOINT: LazyLock<&'static str> = LazyLock::new(|| {
 static API_ENDPOINT: LazyLock<&'static str> = LazyLock::new(|| {
     secret_value(API_ENDPOINT_KEY).unwrap_or("https://api.helloasso-sandbox.com/v5")
 });
+
+static ORG_SLUG: LazyLock<&'static str> =
+    LazyLock::new(|| secret_value(ORG_SLUG_KEY).expect("hello asso org slug not set"));
 
 pub(crate) static HELLO_ASSO_AUTHORIZATION: LazyLock<Pinboard<Authorization>> =
     LazyLock::new(Pinboard::new_empty);
@@ -71,7 +80,7 @@ pub async fn update_hello_asso_bearer_token(timestamp: u32) -> Option<String> {
     } else {
         params.insert("client_secret", *CLIENT_SECRET);
     }
-    let mut client = json_client();
+    let client = json_client();
     match client
         .post(format!("{}/token", *OAUTH_ENDPOINT))
         .form(&params)
@@ -104,8 +113,32 @@ pub async fn update_hello_asso_bearer_token(timestamp: u32) -> Option<String> {
     }
 }
 
-pub async fn init_transaction(user: &User, order: &Order) -> Option<()> {
-    todo!()
+pub async fn init_transaction(snapshot: &Snapshot, user: &User, order: &Order) -> Option<()> {
+    let client = json_client();
+    let price = order.price_in_cents(snapshot);
+    match client
+        .post(format!(
+            "{}/organizations/{}/checkout-intents",
+            *API_ENDPOINT, *ORG_SLUG
+        ))
+        .json(&json!({
+            "totalAmount": price,
+            "initialAmount": price,
+            "itemName": order.to_string(),
+            "backUrl": format!("https://www.{}", *DOMAIN_APEX)
+        }))
+        .send()
+        .await
+    {
+        Ok(response) => {
+            println!("response: {:?}", response);
+            None
+        }
+        Err(err) => {
+            println!("err: {:?}", err);
+            None
+        }
+    }
 }
 
 #[cfg(test)]

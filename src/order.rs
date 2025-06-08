@@ -1,6 +1,7 @@
 use crate::season::is_during_discount_period;
 use crate::user::LicenseType;
 use serde::{Deserialize, Serialize};
+use std::fmt::{Display, Formatter};
 use tiered_server::store::Snapshot;
 
 pub enum Order {
@@ -17,6 +18,50 @@ impl Order {
                 insurance_level,
                 insurance_options.iter(),
             ),
+        }
+    }
+}
+
+impl Display for Order {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::License(license_type, insurance_level, insurance_options) => {
+                let license_name = match license_type {
+                    LicenseType::Adult => "adulte",
+                    LicenseType::Child => "jeune",
+                    LicenseType::Family => "famille",
+                    LicenseType::NonMemberAdult => "adulte hors club",
+                    LicenseType::NonMemberChild => "jeune hors club",
+                    LicenseType::NonPracticing => "non pratiquant",
+                };
+                let insurance_level_name = match insurance_level {
+                    InsuranceLevel::RC => "RC",
+                    InsuranceLevel::Base => "Base",
+                    InsuranceLevel::BasePlus => "Base+",
+                    InsuranceLevel::BasePlusPlus => "Base++",
+                };
+                if insurance_options.is_empty() {
+                    write!(f, "Licence {insurance_level_name} {license_name}")
+                } else {
+                    let s = insurance_options
+                        .iter()
+                        .enumerate()
+                        .flat_map(|(i, it)| {
+                            let name = match it {
+                                InsuranceOption::MountainBike => "option VTT",
+                                InsuranceOption::Ski => "option ski de piste",
+                                InsuranceOption::TrailRunning => "option trail",
+                                InsuranceOption::SlacklineAndHighline => {
+                                    "option slackline/highline"
+                                }
+                            };
+                            let array = if i == 0 { ["", name] } else { [", ", name] };
+                            array.into_iter()
+                        })
+                        .collect::<String>();
+                    write!(f, "Licence {insurance_level_name} {license_name} ({s})")
+                }
+            }
         }
     }
 }
@@ -87,4 +132,26 @@ pub struct LicensePrice {
     dep_fee: u16,
     reg_fee: u16,
     str_fee: u16,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_license_display() {
+        assert_eq!(
+            "Licence Base++ adulte (option VTT, option trail)",
+            Order::License(
+                LicenseType::Adult,
+                InsuranceLevel::BasePlusPlus,
+                vec![InsuranceOption::MountainBike, InsuranceOption::TrailRunning]
+            )
+            .to_string()
+        );
+        assert_eq!(
+            "Licence Base jeune hors club",
+            Order::License(LicenseType::NonMemberChild, InsuranceLevel::Base, vec![]).to_string()
+        );
+    }
 }

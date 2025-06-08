@@ -1,5 +1,6 @@
 use crate::address::City;
 use crate::http_client::json_client;
+use crate::season::current_season;
 use crate::user::LicenseType::NonPracticing;
 use crate::user::{Gender, LicenseType, MedicalCertificateStatus, Metadata, Structure};
 use hyper::header::{AUTHORIZATION, ORIGIN, REFERER};
@@ -95,7 +96,7 @@ pub async fn member_by_name_and_dob(
     dob: u32,
 ) -> Option<Vec<Member>> {
     let response = users_response_by_dob(dob).await?;
-    let mut results = users_response_to_members(response).await?;
+    let mut results = users_response_to_members(response, current_season(None)).await?;
     let normalized_first_name = normalize_first_name(first_name);
     let normalized_last_name = normalize_last_name(last_name);
 
@@ -146,7 +147,9 @@ pub async fn member_by_name_and_dob(
 
 pub async fn member_by_license_number(license_number: u32) -> Option<Member> {
     let response = users_response_by_license_numbers(&[license_number]).await?;
-    let mut iter = users_response_to_members(response).await?.into_iter();
+    let mut iter = users_response_to_members(response, current_season(None))
+        .await?
+        .into_iter();
     let first = iter.next()?;
     if iter.next().is_some() {
         None
@@ -155,14 +158,16 @@ pub async fn member_by_license_number(license_number: u32) -> Option<Member> {
     }
 }
 
-pub async fn members_by_structure(structure_id: u32) -> Option<Vec<Member>> {
+pub async fn members_by_structure(structure_id: u32, season: Option<u16>) -> Option<Vec<Member>> {
+    let season = season.unwrap_or_else(|| current_season(None));
     let response = users_response_by_structure(structure_id).await?;
-    users_response_to_members(response).await
+    users_response_to_members(response, season).await
 }
 
-pub async fn members_by_ids(ids: &[&str]) -> Option<Vec<Member>> {
+pub async fn members_by_ids(ids: &[&str], season: Option<u16>) -> Option<Vec<Member>> {
+    let season = season.unwrap_or_else(|| current_season(None));
     let response = users_response_by_ids(ids).await?;
-    users_response_to_members(response).await
+    users_response_to_members(response, season).await
 }
 
 pub async fn licensees(structure_id: u32, season: u16) -> Option<Vec<Member>> {
@@ -193,8 +198,8 @@ pub async fn licensees(structure_id: u32, season: u16) -> Option<Vec<Member>> {
     #[cfg(not(test))]
     let users = response.json::<GraphqlResponse>().await.ok()?.data.list;
     let addresses = user_addresses(&user_ids).await?;
-    let medical_certificates = user_medical_certificates(&user_ids).await?;
-    let health_questionnaires = user_health_questionnaires(&user_ids).await?;
+    let medical_certificates = user_medical_certificates(&user_ids, season).await?;
+    let health_questionnaires = user_health_questionnaires(&user_ids, season).await?;
     let structure_ids = licenses
         .values()
         .map(|it| it.structure_id)
@@ -320,7 +325,7 @@ async fn users_response_by_dob(dob: u32) -> Option<Response> {
     client.execute(request).await.ok()
 }
 
-async fn users_response_to_members(response: Response) -> Option<Vec<Member>> {
+async fn users_response_to_members(response: Response, season: u16) -> Option<Vec<Member>> {
     #[cfg(test)]
     let users = {
         println!("users");
@@ -345,10 +350,10 @@ async fn users_response_to_members(response: Response) -> Option<Vec<Member>> {
     #[cfg(not(test))]
     let users = response.json::<GraphqlResponse>().await.ok()?.data.list;
     let user_ids = users.iter().map(|it| it.id.as_str()).collect::<Vec<_>>();
-    let licenses = user_licenses(&user_ids).await?;
+    let licenses = user_licenses(&user_ids, season).await?;
     let addresses = user_addresses(&user_ids).await?;
-    let medical_certificates = user_medical_certificates(&user_ids).await?;
-    let health_questionnaires = user_health_questionnaires(&user_ids).await?;
+    let medical_certificates = user_medical_certificates(&user_ids, season).await?;
+    let health_questionnaires = user_health_questionnaires(&user_ids, season).await?;
     let structure_ids = licenses
         .values()
         .map(|it| it.structure_id)
@@ -474,7 +479,10 @@ fn members(
         .collect()
 }
 
-async fn user_medical_certificates(ids: &[&str]) -> Option<BTreeMap<String, Document>> {
+async fn user_medical_certificates(
+    ids: &[&str],
+    season: u16,
+) -> Option<BTreeMap<String, Document>> {
     let url = Url::parse("https://back-prod.core.myffme.fr/v1/graphql").unwrap();
     let client = json_client();
     let request = client
@@ -493,6 +501,7 @@ async fn user_medical_certificates(ids: &[&str]) -> Option<BTreeMap<String, Docu
             "query": GRAPHQL_GET_MEDICAL_CERTIFICATES_BY_USER_IDS,
             "variables": {
                 "ids": ids,
+                "season": season,
             }
         }))
         .build()
@@ -545,7 +554,10 @@ async fn user_medical_certificates(ids: &[&str]) -> Option<BTreeMap<String, Docu
     )
 }
 
-async fn user_health_questionnaires(ids: &[&str]) -> Option<BTreeMap<String, Document>> {
+async fn user_health_questionnaires(
+    ids: &[&str],
+    season: u16,
+) -> Option<BTreeMap<String, Document>> {
     let url = Url::parse("https://back-prod.core.myffme.fr/v1/graphql").unwrap();
     let client = json_client();
     let request = client
@@ -564,6 +576,7 @@ async fn user_health_questionnaires(ids: &[&str]) -> Option<BTreeMap<String, Doc
             "query": GRAPHQL_GET_HEALTH_QUESTIONNAIRES_BY_USER_IDS,
             "variables": {
                 "ids": ids,
+                "season": season,
             }
         }))
         .build()
@@ -687,7 +700,7 @@ async fn user_addresses(ids: &[&str]) -> Option<BTreeMap<String, Address>> {
     )
 }
 
-async fn user_licenses(ids: &[&str]) -> Option<BTreeMap<String, License>> {
+async fn user_licenses(ids: &[&str], season: u16) -> Option<BTreeMap<String, License>> {
     let url = Url::parse("https://back-prod.core.myffme.fr/v1/graphql").unwrap();
     let client = json_client();
     let request = client
@@ -706,6 +719,7 @@ async fn user_licenses(ids: &[&str]) -> Option<BTreeMap<String, License>> {
             "query": GRAPHQL_GET_LICENSES_BY_USER_IDS,
             "variables": {
                 "ids": ids,
+                "season": season,
             }
         }))
         .build()
@@ -1363,9 +1377,10 @@ const GRAPHQL_GET_ADDRESSES_BY_USER_IDS: &str = "\
 const GRAPHQL_GET_LICENSES_BY_USER_IDS: &str = "\
     query getLicensesByUserIds(
         $ids: [uuid!]!
+        $season: Int!
     ) {
         list: licence(
-            where: { user_id: { _in: $ids } }
+            where: { user_id: { _in: $ids }, season_id: { _lte: $season } }
             order_by: [ { user_id: asc }, { season_id: desc_nulls_last } ]
             distinct_on: user_id
         ) {
@@ -1400,6 +1415,7 @@ const GRAPHQL_GET_LICENSES_BY_STRUCTURE_ID_AND_SEASON: &str = "\
 const GRAPHQL_GET_MEDICAL_CERTIFICATES_BY_USER_IDS: &str = "\
     query getMedicalCertificatesByUserIds(
         $ids: [uuid!]!
+        $season: Int!
     ) {
         list: DOC_Document(
             distinct_on: ID_Utilisateur
@@ -1409,6 +1425,7 @@ const GRAPHQL_GET_MEDICAL_CERTIFICATES_BY_USER_IDS: &str = "\
                 EST_DocumentValide: { _eq: true }
                 EST_Actif: { _eq: true }
                 ID_Type_Document: { _in: [ 5, 6, 7, 9 ] }
+                ID_Saison: { _lte: $season }
             }
         ) {
             user_id: ID_Utilisateur,
@@ -1422,6 +1439,7 @@ const GRAPHQL_GET_MEDICAL_CERTIFICATES_BY_USER_IDS: &str = "\
 const GRAPHQL_GET_HEALTH_QUESTIONNAIRES_BY_USER_IDS: &str = "\
     query getHealthQuestionnairesByUserIds(
         $ids: [uuid!]!
+        $season: Int!
     ) {
         list: DOC_Document(
             distinct_on: ID_Utilisateur
@@ -1431,6 +1449,7 @@ const GRAPHQL_GET_HEALTH_QUESTIONNAIRES_BY_USER_IDS: &str = "\
                 EST_DocumentValide: { _eq: true }
                 EST_Actif: { _eq: true }
                 ID_Type_Document: { _in: [ 60 ] }
+                ID_Saison: { _lte: $season }
             }
         ) {
             user_id: ID_Utilisateur,
@@ -1557,6 +1576,7 @@ mod tests {
                 "5f5e0d27-cf50-42ea-89f8-f1649a2ef6aa",
             ]
             .as_slice(),
+            None,
         )
         .await
         .unwrap();
@@ -1590,7 +1610,7 @@ mod tests {
     async fn test_list() {
         assert!(update_myffme_bearer_token(0).await.is_some());
         let t0 = SystemTime::now();
-        let all_members = members_by_structure(10).await.unwrap();
+        let all_members = members_by_structure(10, None).await.unwrap();
         let elapsed = t0.elapsed().unwrap();
         println!("{elapsed:?}");
         assert!(!all_members.is_empty());

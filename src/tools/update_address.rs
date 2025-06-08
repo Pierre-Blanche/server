@@ -82,7 +82,7 @@ mod tests {
                 .await
                 .expect("failed to get bearer token")
         );
-        let members = members_by_structure(10)
+        let members = members_by_structure(10, None)
             .await
             .expect("failed to get members");
         let mut insee_to_city_names = BTreeMap::new();
@@ -142,7 +142,7 @@ mod tests {
                 .await
                 .expect("failed to get bearer token")
         );
-        let members = members_by_structure(10)
+        let members = members_by_structure(10, None)
             .await
             .expect("failed to get members");
         for member in members.iter() {
@@ -209,7 +209,7 @@ mod tests {
                 .await
                 .expect("failed to get bearer token")
         );
-        let members = members_by_structure(10)
+        let members = members_by_structure(10, None)
             .await
             .expect("failed to get members");
         let mut count = 0_usize;
