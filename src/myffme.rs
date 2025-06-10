@@ -629,6 +629,12 @@ async fn user_health_questionnaires(
     )
 }
 
+pub(crate) async fn user_address(id: &str) -> Option<Address> {
+    user_addresses([id].as_slice())
+        .await
+        .and_then(|mut it| it.remove(id))
+}
+
 async fn user_addresses(ids: &[&str]) -> Option<BTreeMap<String, Address>> {
     let url = Url::parse("https://back-prod.core.myffme.fr/v1/graphql").unwrap();
     let client = json_client();
@@ -1186,7 +1192,7 @@ impl TryFrom<&str> for LicenseType {
     }
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Default)]
 pub(crate) struct Address {
     #[serde(skip_serializing)]
     pub user_id: Option<String>,

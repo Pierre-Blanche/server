@@ -43,9 +43,12 @@ mod tests {
                 .await
                 .expect("failed to get bearer token")
         );
-        let members = members_by_ids(&user_ids.iter().map(|it| it.as_str()).collect::<Vec<_>>())
-            .await
-            .expect("failed to get members");
+        let members = members_by_ids(
+            &user_ids.iter().map(|it| it.as_str()).collect::<Vec<_>>(),
+            None,
+        )
+        .await
+        .expect("failed to get members");
         let mut members_metadata = BTreeMap::new();
         for member in members {
             let metadata = member.metadata;

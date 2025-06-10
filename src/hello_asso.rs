@@ -1,6 +1,8 @@
 use crate::http_client::json_client;
+use crate::myffme::{user_address, Address};
 use crate::order::Order;
-use hyper::header::HeaderValue;
+use crate::user::Metadata;
+use hyper::header::{HeaderValue, AUTHORIZATION};
 use pinboard::Pinboard;
 use serde::Deserialize;
 use serde_json::json;
@@ -113,29 +115,66 @@ pub async fn update_hello_asso_bearer_token(timestamp: u32) -> Option<String> {
     }
 }
 
-pub async fn init_transaction(snapshot: &Snapshot, user: &User, order: &Order) -> Option<()> {
+#[derive(Deserialize)]
+pub struct Checkout {
+    pub(crate) id: String,
+    #[serde(rename = "redirectUrl")]
+    pub(crate) redirect_url: String,
+}
+
+pub async fn init_transaction(snapshot: &Snapshot, user: &User, order: &Order) -> Option<Checkout> {
     let client = json_client();
     let price = order.price_in_cents(snapshot);
+    let return_url = format!("https://www.{}/user", *DOMAIN_APEX);
+    let address = if let Some(ffme_id) = user
+        .metadata
+        .as_ref()
+        .and_then(|it| Metadata::deserialize(it).ok())
+        .and_then(|it| it.myffme_user_id)
+    {
+        user_address(&ffme_id).await.unwrap_or_default()
+    } else {
+        Address::default()
+    };
+    let dob_str = user.date_of_birth.to_string();
     match client
         .post(format!(
             "{}/organizations/{}/checkout-intents",
             *API_ENDPOINT, *ORG_SLUG
         ))
+        .header(
+            AUTHORIZATION,
+            HELLO_ASSO_AUTHORIZATION
+                .get_ref()
+                .map(|it| it.bearer_token.clone())?,
+        )
         .json(&json!({
             "totalAmount": price,
             "initialAmount": price,
             "itemName": order.to_string(),
-            "backUrl": format!("https://www.{}", *DOMAIN_APEX)
+            "backUrl": &return_url,
+            "returnUrl": &return_url,
+            "errorUrl": &return_url,
+            "containsDonation": false,
+            "payer": {
+                "firstName": &user.first_name,
+                "lastName": &user.last_name,
+                "email": &user.email(),
+                "address": &address.line1,
+                "city": &address.city,
+                "zipCode": &address.zip_code,
+                "country": "fra",
+                "dateOfBirth": format!("{}-{}-{}", dob_str.get(..2).unwrap(), dob_str.get(2..4).unwrap(), dob_str.get(4..).unwrap()),
+            }
         }))
         .send()
         .await
     {
         Ok(response) => {
-            println!("response: {:?}", response);
-            None
+            response.json().await.ok()?
         }
         Err(err) => {
-            println!("err: {:?}", err);
+            eprintln!("err: {:?}", err);
             None
         }
     }
