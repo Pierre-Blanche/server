@@ -1,8 +1,10 @@
 use crate::address::City;
 use crate::http_client::json_client;
+use crate::order::{InsuranceLevel, InsuranceOption};
 use crate::season::current_season;
 use crate::user::LicenseType::NonPracticing;
 use crate::user::{Gender, LicenseType, MedicalCertificateStatus, Metadata, Structure};
+use http_body_util::BodyExt;
 use hyper::header::{AUTHORIZATION, ORIGIN, REFERER};
 use hyper::http::{HeaderName, HeaderValue};
 use pinboard::Pinboard;
@@ -38,11 +40,22 @@ const PASSWORD_KEY: ConfigurationKey = ConfigurationKey::Other {
     variable_name: "MYFFME_PASSWORD",
 };
 
+const STRUCTURE_ID_KEY: ConfigurationKey = ConfigurationKey::Other {
+    variable_name: "MYFFME_STRUCTURE_ID",
+};
+
 static USERNAME: LazyLock<&'static str> =
     LazyLock::new(|| secret_value(USERNAME_KEY).expect("myffme username not set"));
 //noinspection SpellCheckingInspection
 static PASSWORD: LazyLock<&'static str> =
     LazyLock::new(|| secret_value(PASSWORD_KEY).expect("myffme password not set"));
+
+pub static STRUCTURE_ID: LazyLock<u32> = LazyLock::new(|| {
+    secret_value(STRUCTURE_ID_KEY)
+        .expect("myffme structure id not set")
+        .parse()
+        .expect("invalid myffme structure id")
+});
 
 pub(crate) static MYFFME_AUTHORIZATION: LazyLock<Pinboard<Authorization>> =
     LazyLock::new(Pinboard::new_empty);
@@ -922,6 +935,229 @@ async fn structures_by_ids(ids: &[u32]) -> Option<BTreeMap<u32, Structure>> {
 }
 
 #[derive(Deserialize)]
+struct StructureHierarchy {
+    id: u32,
+    department_structure_id: u32,
+    region_structure_id: u32,
+    national_structure_id: u32,
+}
+
+async fn structure_hierarchy_by_id(id: u32) -> Option<StructureHierarchy> {
+    let url = Url::parse("https://back-prod.core.myffme.fr/v1/graphql").unwrap();
+    let client = json_client();
+    let request = client
+        .post(url.as_str())
+        .header(ORIGIN, HeaderValue::from_static("https://www.myffme.fr"))
+        .header(REFERER, HeaderValue::from_static("https://www.myffme.fr/"))
+        .header(X_HASURA_ROLE, ADMIN)
+        .header(
+            AUTHORIZATION,
+            MYFFME_AUTHORIZATION
+                .get_ref()
+                .map(|it| it.bearer_token.clone())?,
+        )
+        .json(&json!({
+            "operationName": "getStructuresByIds",
+            "query": GRAPHQL_GET_STRUCTURES_BY_IDS,
+            "variables": {
+                "ids": [id],
+            }
+        }))
+        .build()
+        .ok()?;
+    let response = client.execute(request).await.ok()?;
+    #[derive(Deserialize)]
+    struct StructureList {
+        list: Vec<StructureHierarchy>,
+    }
+    #[derive(Deserialize)]
+    struct GraphqlResponse {
+        data: StructureList,
+    }
+    #[cfg(test)]
+    let structure_hierarchy = {
+        println!("structure");
+        println!("POST {}", url.as_str());
+        println!("{}", response.status());
+        let text = response.text().await.ok()?;
+        let file_name = format!(".structure.json");
+        tokio::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .create(true)
+            .open(&file_name)
+            .await
+            .ok()?
+            .write_all(text.as_bytes())
+            .await
+            .unwrap();
+        serde_json::from_str::<GraphqlResponse>(&text)
+            .map_err(|e| {
+                eprintln!("{e:?}");
+                e
+            })
+            .ok()?
+            .data
+            .list
+            .into_iter()
+            .next()?
+    };
+    #[cfg(not(test))]
+    let structure_hierarchy = response
+        .json::<GraphqlResponse>()
+        .await
+        .ok()?
+        .data
+        .list
+        .into_iter()
+        .next()?;
+    Some(structure_hierarchy)
+}
+
+#[derive(Deserialize)]
+struct Product {
+    id: String,
+    #[serde(deserialize_with = "deserialize_license_type")]
+    license_type: Option<LicenseType>,
+}
+
+async fn products() -> Option<Vec<Product>> {
+    let url = Url::parse("https://back-prod.core.myffme.fr/v1/graphql").unwrap();
+    let client = json_client();
+    let request = client
+        .post(url.as_str())
+        .header(ORIGIN, HeaderValue::from_static("https://www.myffme.fr"))
+        .header(REFERER, HeaderValue::from_static("https://www.myffme.fr/"))
+        .header(X_HASURA_ROLE, ADMIN)
+        .header(
+            AUTHORIZATION,
+            MYFFME_AUTHORIZATION
+                .get_ref()
+                .map(|it| it.bearer_token.clone())?,
+        )
+        .json(&json!({
+            "operationName": "getProducts",
+            "query": GRAPHQL_GET_PRODUCTS,
+            "variables": {}
+        }))
+        .build()
+        .ok()?;
+    let response = client.execute(request).await.ok()?;
+    #[derive(Deserialize)]
+    struct ProductList {
+        list: Vec<Product>,
+    }
+    #[derive(Deserialize)]
+    struct GraphqlResponse {
+        data: ProductList,
+    }
+    #[cfg(test)]
+    let products = {
+        println!("products");
+        println!("POST {}", url.as_str());
+        println!("{}", response.status());
+        let text = response.text().await.ok()?;
+        let file_name = format!(".products.json");
+        tokio::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .create(true)
+            .open(&file_name)
+            .await
+            .ok()?
+            .write_all(text.as_bytes())
+            .await
+            .unwrap();
+        serde_json::from_str::<GraphqlResponse>(&text)
+            .map_err(|e| {
+                eprintln!("{e:?}");
+                e
+            })
+            .ok()?
+            .data
+            .list
+    };
+    #[cfg(not(test))]
+    let products = response.json::<GraphqlResponse>().await.ok()?.data.list;
+    Some(products)
+}
+
+#[derive(Deserialize)]
+struct InsuranceLevelOption {
+    id: String,
+    #[serde(deserialize_with = "deserialize_insurance_level")]
+    level: Option<InsuranceLevel>,
+}
+
+#[derive(Deserialize)]
+struct InsuranceOptionOption {
+    id: String,
+    #[serde(deserialize_with = "deserialize_insurance_option")]
+    option: Option<InsuranceOption>,
+}
+
+async fn options() -> Option<(Vec<InsuranceLevelOption>, Vec<InsuranceOptionOption>)> {
+    let url = Url::parse("https://back-prod.core.myffme.fr/v1/graphql").unwrap();
+    let client = json_client();
+    let request = client
+        .post(url.as_str())
+        .header(ORIGIN, HeaderValue::from_static("https://www.myffme.fr"))
+        .header(REFERER, HeaderValue::from_static("https://www.myffme.fr/"))
+        .header(X_HASURA_ROLE, ADMIN)
+        .header(
+            AUTHORIZATION,
+            MYFFME_AUTHORIZATION
+                .get_ref()
+                .map(|it| it.bearer_token.clone())?,
+        )
+        .json(&json!({
+            "operationName": "getOptions",
+            "query": GRAPHQL_GET_OPTIONS,
+            "variables": {}
+        }))
+        .build()
+        .ok()?;
+    let response = client.execute(request).await.ok()?;
+    #[derive(Deserialize)]
+    struct OptionList {
+        levels: Vec<InsuranceLevelOption>,
+        options: Vec<InsuranceOptionOption>,
+    }
+    #[derive(Deserialize)]
+    struct GraphqlResponse {
+        data: OptionList,
+    }
+    #[cfg(test)]
+    let options = {
+        println!("options");
+        println!("POST {}", url.as_str());
+        println!("{}", response.status());
+        let text = response.text().await.ok()?;
+        let file_name = format!(".options.json");
+        tokio::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .create(true)
+            .open(&file_name)
+            .await
+            .ok()?
+            .write_all(text.as_bytes())
+            .await
+            .unwrap();
+        serde_json::from_str::<GraphqlResponse>(&text)
+            .map_err(|e| {
+                eprintln!("{e:?}");
+                e
+            })
+            .ok()?
+            .data
+    };
+    #[cfg(not(test))]
+    let options = response.json::<GraphqlResponse>().await.ok()?.data;
+    Some((options.levels, options.options))
+}
+
+#[derive(Deserialize)]
 struct Document {
     pub user_id: Option<String>,
     pub season: u16,
@@ -1192,6 +1428,47 @@ impl TryFrom<&str> for LicenseType {
     }
 }
 
+impl TryFrom<&str> for InsuranceLevel {
+    type Error = String;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "rc" | "Rc" | "RC" | "8e1b2635-a76a-40a4-a278-2cd6768d03c0" => Ok(InsuranceLevel::RC),
+            "base" | "Base" | "4061064e-4d0a-4c49-9c66-109960a0437a" => Ok(InsuranceLevel::Base),
+            "base_plus" | "BasePlus" | "a3a2d318-c8a5-410b-ac9d-1f07c1d69bdc" => {
+                Ok(InsuranceLevel::BasePlus)
+            }
+            "base_plus_plus" | "BasePlusPlus" | "902fb734-a182-419a-af61-008b8bff3a4a" => {
+                Ok(InsuranceLevel::BasePlusPlus)
+            }
+            other => Err(format!("unknown insurance level: {other}")),
+        }
+    }
+}
+
+impl TryFrom<&str> for InsuranceOption {
+    type Error = String;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "vtt" | "MountainBike" | "mountain_bike" | "5e6eb7ec-7dc6-445b-ab50-9b45cb202f1e" => {
+                Ok(InsuranceOption::MountainBike)
+            }
+            "ski_piste" | "Ski" | "ski" | "92e7eebe-71cd-4258-b178-141587374b81" => {
+                Ok(InsuranceOption::Ski)
+            }
+            "slackline_highline"
+            | "SlacklineAndHighline"
+            | "slackline_and_highline"
+            | "dae0654d-977c-46c5-8f48-63de2d127efd" => Ok(InsuranceOption::SlacklineAndHighline),
+            "trail" | "TrialRunning" | "trial_running" | "d9c13113-70eb-4e04-a265-aba8f8ea7e8b" => {
+                Ok(InsuranceOption::TrailRunning)
+            }
+            other => Err(format!("unknown insurance option: {other}")),
+        }
+    }
+}
+
 #[derive(Deserialize, Serialize, Default)]
 pub(crate) struct Address {
     #[serde(skip_serializing)]
@@ -1253,7 +1530,31 @@ where
 {
     let result = <&str>::deserialize(deserializer);
     match result {
-        Ok(str) => Ok(Some(str.try_into().map_err(Error::custom)?)),
+        Ok(str) => Ok(str.try_into().ok()),
+        Err(_err) => Ok(None),
+    }
+}
+
+fn deserialize_insurance_level<'de, D>(deserializer: D) -> Result<Option<InsuranceLevel>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let result = <&str>::deserialize(deserializer);
+    match result {
+        Ok(str) => Ok(str.try_into().ok()),
+        Err(_err) => Ok(None),
+    }
+}
+
+fn deserialize_insurance_option<'de, D>(
+    deserializer: D,
+) -> Result<Option<InsuranceOption>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let result = <&str>::deserialize(deserializer);
+    match result {
+        Ok(str) => Ok(str.try_into().ok()),
         Err(_err) => Ok(None),
     }
 }
@@ -1475,6 +1776,90 @@ const GRAPHQL_GET_STRUCTURES_BY_IDS: &str = "\
             code: federal_code
             name: label
             department: department_id
+            department_structure_id: ct_id
+            region_structure_id: ligue_id
+            national_structure_id: ffme_id
+        }
+    }\
+";
+
+// ProductCategory {
+//     id: "d5b8f23e-cd8e-4179-ac21-0b6f150820f4",
+//     slug: "licence"
+// }
+const GRAPHQL_GET_PRODUCTS: &str = "\
+    query getProducts {
+        list: product(
+            where: {
+                product_categorie_id: { _eq: \"d5b8f23e-cd8e-4179-ac21-0b6f150820f4\" }
+            }
+        ) {
+            id,
+            license_type: slug
+        }
+    }\
+";
+
+// OptionType {
+//     id: "0bd82f7a-8aa1-4aa7-80e9-43e32a37f829",
+//     slug: "assurance"
+// }
+// OptionType {
+//     id: "7912cb1c-b5e1-4e21-8195-1ec2573fb609",
+//     slug: "option_assurance"
+// }
+const GRAPHQL_GET_OPTIONS: &str = "\
+    query getOptions {
+        levels: option(
+            where: {
+                option_type_id: { _eq: \"0bd82f7a-8aa1-4aa7-80e9-43e32a37f829\" }
+            }
+        ) {
+            id
+            level: slug
+        }
+        options: option(
+            where: {
+                option_type_id: { _eq: \"7912cb1c-b5e1-4e21-8195-1ec2573fb609\" }
+            }
+        ) {
+            id
+            option: slug
+        }
+    }\
+";
+
+const GRAPHQL_GET_PRICES: &str = "\
+    query getPrices(
+        $products: [String!]!
+        $options: [String!]!
+        $department_structure_id: Int!
+        $region_structure_id: Int!
+        $national_structure_id: Int!
+        $season: Int!
+    ) {
+        license_types: price(
+            where: {
+                season_id: { _eq: $season }
+                product_id: { _in: $products }
+                structure_id: { _in: [ $department_structure_id, $region_structure_id, $national_structure_id ] }
+                option_id: { _is_null: true }
+            }
+        ) {
+            product_id
+            structure_id
+            value
+        }
+        options: price(
+            where: {
+                season_id: { _eq: $season }
+                option_id: { _in: $options }
+                structure_id: { _eq: [ $national_structure_id ] }
+                product_id: { _is_null: true }
+            }
+        ) {
+            option_id
+            value
         }
     }\
 ";
@@ -1546,6 +1931,17 @@ mod tests {
     use std::time::SystemTime;
 
     #[tokio::test]
+    #[ignore]
+    async fn test_bearer_token() {
+        println!(
+            "{}",
+            update_myffme_bearer_token(0)
+                .await
+                .expect("failed to get bearer token")
+        );
+    }
+
+    #[tokio::test]
     async fn test_member_by_license_number() {
         assert!(update_myffme_bearer_token(0).await.is_some());
         let t0 = SystemTime::now();
@@ -1598,6 +1994,86 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_structure_hierarchy() {
+        assert!(update_myffme_bearer_token(0).await.is_some());
+        let t0 = SystemTime::now();
+        let hierarchy = structure_hierarchy_by_id(*STRUCTURE_ID).await.unwrap();
+        let elapsed = t0.elapsed().unwrap();
+        println!("{elapsed:?}");
+        println!(
+            "{}, {}, {}, {}",
+            hierarchy.id,
+            hierarchy.department_structure_id,
+            hierarchy.region_structure_id,
+            hierarchy.national_structure_id
+        );
+    }
+
+    #[tokio::test]
+    async fn test_products() {
+        assert!(update_myffme_bearer_token(0).await.is_some());
+        let t0 = SystemTime::now();
+        let products = products().await.unwrap();
+        let elapsed = t0.elapsed().unwrap();
+        println!("{elapsed:?}");
+        for (license_type, license_name) in [
+            (LicenseType::Adult, "Adult"),
+            (LicenseType::Child, "Child"),
+            (LicenseType::Family, "Family"),
+            (LicenseType::NonMemberAdult, "Non Member Adult"),
+            (LicenseType::NonMemberChild, "Non Member Child"),
+        ] {
+            assert!(
+                products
+                    .iter()
+                    .find(|it| it.license_type.as_ref() == Some(&license_type))
+                    .is_some(),
+                "{}",
+                license_name
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_options() {
+        assert!(update_myffme_bearer_token(0).await.is_some());
+        let t0 = SystemTime::now();
+        let (insurance_levels, insurance_options) = options().await.unwrap();
+        let elapsed = t0.elapsed().unwrap();
+        println!("{elapsed:?}");
+        for (insurance_level, level_name) in [
+            (InsuranceLevel::RC, "RC"),
+            (InsuranceLevel::Base, "Base"),
+            (InsuranceLevel::BasePlus, "Base+"),
+            (InsuranceLevel::BasePlusPlus, "Base++"),
+        ] {
+            assert!(
+                insurance_levels
+                    .iter()
+                    .find(|it| it.level.as_ref() == Some(&insurance_level))
+                    .is_some(),
+                "{}",
+                level_name
+            );
+        }
+        for (insurance_option, option_name) in [
+            (InsuranceOption::MountainBike, "Mountain Bike"),
+            (InsuranceOption::Ski, "Ski"),
+            (InsuranceOption::SlacklineAndHighline, "Slackline/Highline"),
+            (InsuranceOption::TrailRunning, "Trail Running"),
+        ] {
+            assert!(
+                insurance_options
+                    .iter()
+                    .find(|it| it.option.as_ref() == Some(&insurance_option))
+                    .is_some(),
+                "{}",
+                option_name
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn test_update_email() {
         assert!(update_myffme_bearer_token(0).await.is_some());
         let t0 = SystemTime::now();
@@ -1616,7 +2092,7 @@ mod tests {
     async fn test_list() {
         assert!(update_myffme_bearer_token(0).await.is_some());
         let t0 = SystemTime::now();
-        let all_members = members_by_structure(10, None).await.unwrap();
+        let all_members = members_by_structure(*STRUCTURE_ID, None).await.unwrap();
         let elapsed = t0.elapsed().unwrap();
         println!("{elapsed:?}");
         assert!(!all_members.is_empty());
@@ -1635,7 +2111,7 @@ mod tests {
             .unwrap();
         let season = current_season(None);
         let t0 = SystemTime::now();
-        let licensees = licensees(10, season).await.unwrap();
+        let licensees = licensees(*STRUCTURE_ID, season).await.unwrap();
         let elapsed = t0.elapsed().unwrap();
         println!("{elapsed:?}");
         tokio::fs::OpenOptions::new()
