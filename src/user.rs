@@ -20,7 +20,7 @@ pub struct Metadata {
     pub competition_results: Option<Vec<CompetitionResult>>,
 }
 
-#[derive(Deserialize, Serialize, Eq, PartialEq)]
+#[derive(Deserialize, Serialize, Eq, PartialEq, Ord, PartialOrd, Copy, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum Gender {
     Female,
@@ -28,7 +28,7 @@ pub enum Gender {
     Unspecified,
 }
 
-#[derive(Deserialize, Serialize, Eq, PartialEq)]
+#[derive(Deserialize, Serialize, Eq, PartialEq, Ord, PartialOrd, Copy, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum LicenseType {
     Adult,
@@ -39,7 +39,7 @@ pub enum LicenseType {
     NonPracticing,
 }
 
-#[derive(Deserialize, Serialize, Eq, PartialEq)]
+#[derive(Deserialize, Serialize, Eq, PartialEq, Ord, PartialOrd, Copy, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum MedicalCertificateStatus {
     Recreational,

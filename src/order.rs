@@ -66,7 +66,7 @@ impl Display for Order {
     }
 }
 
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone)]
 pub enum InsuranceLevel {
     RC,
     Base,
@@ -74,7 +74,7 @@ pub enum InsuranceLevel {
     BasePlusPlus,
 }
 
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone)]
 pub enum InsuranceOption {
     MountainBike,
     Ski,
