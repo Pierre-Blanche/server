@@ -1,10 +1,12 @@
 pub mod address;
+pub mod api;
+mod category;
 mod chrome;
 mod hello_asso;
 mod http_client;
 pub mod mycompet;
 pub mod myffme;
 mod order;
-pub mod season;
+mod season;
 pub mod update;
 pub mod user;

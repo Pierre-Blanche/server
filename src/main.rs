@@ -1,22 +1,6 @@
-use http_body_util::{Either, Empty, Full};
-use hyper::body::{Bytes, Incoming};
-use hyper::{Request, Response};
+use pierre_blanche_server::api::ApiExtension;
 use pierre_blanche_server::update::update_loop;
-use std::sync::Arc;
-use tiered_server::api::Extension;
 use tiered_server::server::serve;
-
-struct ApiExtension;
-
-impl Extension for ApiExtension {
-    async fn handle_api_extension(
-        &self,
-        _request: Request<Incoming>,
-        _server_name: &Arc<String>,
-    ) -> Option<Response<Either<Full<Bytes>, Empty<Bytes>>>> {
-        None
-    }
-}
 
 #[tokio::main]
 async fn main() {

@@ -1,6 +1,6 @@
 use crate::myffme::{prices, LicenseFees};
-use crate::season::is_during_discount_period;
 use crate::user::LicenseType;
+use serde::Serialize;
 use std::fmt::{Display, Formatter};
 use tiered_server::store::{snapshot, Snapshot};
 
@@ -9,7 +9,7 @@ pub async fn update_prices() -> Option<()> {
     let base_license_price = match snapshot.get::<u16>(BaseLicensePrice.key()) {
         Some(price) => price,
         None => {
-            let price = 140_00;
+            let price = 135_00;
             Snapshot::set_and_wait_for_update(BaseLicensePrice.key(), &price).await?;
             price
         }
@@ -19,6 +19,33 @@ pub async fn update_prices() -> Option<()> {
         Snapshot::set_and_wait_for_update(EquipmentRental.key(), &price).await?;
     }
     let (mut license_types, mut levels, mut options) = prices(None).await?;
+    for level in [
+        InsuranceLevel::RC,
+        InsuranceLevel::Base,
+        InsuranceLevel::BasePlus,
+        InsuranceLevel::BasePlusPlus,
+    ] {
+        let price = snapshot.get::<u16>(level.key());
+        if let Some(found) = levels.remove(&level) {
+            if Some(found) != price {
+                Snapshot::set_and_wait_for_update(level.key(), &found).await?;
+            }
+        }
+    }
+    for option in [
+        InsuranceOption::MountainBike,
+        InsuranceOption::Ski,
+        InsuranceOption::SlacklineAndHighline,
+        InsuranceOption::TrailRunning,
+    ] {
+        let price = snapshot.get::<u16>(option.key());
+        if let Some(found) = options.remove(&option) {
+            if Some(found) != price {
+                Snapshot::set_and_wait_for_update(option.key(), &found).await?;
+            }
+        }
+    }
+    let default_level_price = levels.remove(&InsuranceLevel::default())?;
     for license_type in [
         LicenseType::Adult,
         LicenseType::Child,
@@ -48,36 +75,11 @@ pub async fn update_prices() -> Option<()> {
             let expected_fee = base_license_price
                 - found.federal_fee_in_cents
                 - found.regional_fee_in_cents
-                - found.department_fee_in_cents;
+                - found.department_fee_in_cents
+                - default_level_price;
             if fee != Some(expected_fee) {
                 Snapshot::set_and_wait_for_update(MembershipFee(license_type).key(), &expected_fee)
                     .await?;
-            }
-        }
-    }
-    for level in [
-        InsuranceLevel::RC,
-        InsuranceLevel::Base,
-        InsuranceLevel::BasePlus,
-        InsuranceLevel::BasePlusPlus,
-    ] {
-        let price = snapshot.get::<u16>(level.key());
-        if let Some(found) = levels.remove(&level) {
-            if Some(found) != price {
-                Snapshot::set_and_wait_for_update(level.key(), &found).await?;
-            }
-        }
-    }
-    for option in [
-        InsuranceOption::MountainBike,
-        InsuranceOption::Ski,
-        InsuranceOption::SlacklineAndHighline,
-        InsuranceOption::TrailRunning,
-    ] {
-        let price = snapshot.get::<u16>(option.key());
-        if let Some(found) = options.remove(&option) {
-            if Some(found) != price {
-                Snapshot::set_and_wait_for_update(option.key(), &found).await?;
             }
         }
     }
@@ -93,21 +95,8 @@ pub enum Order {
     ),
 }
 
-impl Order {
-    pub fn price_in_cents(&self, snapshot: &Snapshot) -> u16 {
-        match self {
-            Self::License(license_type, insurance_level, insurance_options, equipment_rental) => {
-                price_in_cents(
-                    snapshot,
-                    None,
-                    license_type,
-                    insurance_level,
-                    insurance_options.iter(),
-                    equipment_rental.as_ref(),
-                )
-            }
-        }
-    }
+pub trait Priced {
+    fn price_in_cents(&self, snapshot: &Snapshot, during_discount_period: bool) -> u16;
 }
 
 trait Keyed {
@@ -236,7 +225,7 @@ struct BaseLicensePrice;
 
 struct MembershipFee(LicenseType);
 
-#[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone)]
+#[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Serialize)]
 pub enum InsuranceLevel {
     RC,
     Base,
@@ -244,7 +233,13 @@ pub enum InsuranceLevel {
     BasePlusPlus,
 }
 
-#[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone)]
+impl Default for InsuranceLevel {
+    fn default() -> Self {
+        Self::Base
+    }
+}
+
+#[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Serialize)]
 pub enum InsuranceOption {
     MountainBike,
     Ski,
@@ -252,54 +247,86 @@ pub enum InsuranceOption {
     TrailRunning,
 }
 
-struct EquipmentRental;
+pub struct EquipmentRental;
 
-fn price_in_cents<'a>(
-    snapshot: &'a Snapshot,
-    timestamp: Option<u32>,
-    license_type: &'a LicenseType,
-    insurance_level: &'a InsuranceLevel,
-    insurance_options: impl Iterator<Item = &'a InsuranceOption>,
-    equipment_rental: Option<&'a EquipmentRental>,
-) -> u16 {
-    let mut license_fees = snapshot
-        .get::<LicenseFees>(license_type.key())
-        .expect("missing license price");
-    if is_during_discount_period(timestamp) {
-        match license_type {
-            LicenseType::Adult
-            | LicenseType::Child
-            | LicenseType::Family
-            | LicenseType::NonPracticing => {
-                license_fees.federal_fee_in_cents /= 2;
+impl Priced for LicenseType {
+    fn price_in_cents(&self, snapshot: &Snapshot, is_during_discount_period: bool) -> u16 {
+        let mut license_fees = snapshot
+            .get::<LicenseFees>(self.key())
+            .expect("missing license price");
+        if is_during_discount_period {
+            match self {
+                LicenseType::Adult
+                | LicenseType::Child
+                | LicenseType::Family
+                | LicenseType::NonPracticing => {
+                    license_fees.federal_fee_in_cents /= 2;
+                }
+                _ => {}
             }
-            _ => {}
+        }
+        let structure_fee = snapshot
+            .get::<u16>(MembershipFee(*self).key())
+            .expect("missing structure fee");
+        let federal_fee_in_cents = if is_during_discount_period {
+            match self {
+                LicenseType::Adult
+                | LicenseType::Child
+                | LicenseType::Family
+                | LicenseType::NonPracticing => license_fees.federal_fee_in_cents / 2,
+                _ => license_fees.federal_fee_in_cents,
+            }
+        } else {
+            license_fees.federal_fee_in_cents
+        };
+        federal_fee_in_cents
+            + license_fees.regional_fee_in_cents
+            + license_fees.department_fee_in_cents
+            + structure_fee
+    }
+}
+
+impl Priced for InsuranceLevel {
+    fn price_in_cents(&self, snapshot: &Snapshot, _: bool) -> u16 {
+        snapshot
+            .get::<u16>(self.key())
+            .expect("missing insurance level price")
+    }
+}
+
+impl Priced for InsuranceOption {
+    fn price_in_cents(&self, snapshot: &Snapshot, _: bool) -> u16 {
+        snapshot
+            .get::<u16>(self.key())
+            .expect("missing insurance option price")
+    }
+}
+
+impl Priced for EquipmentRental {
+    fn price_in_cents(&self, snapshot: &Snapshot, _: bool) -> u16 {
+        snapshot
+            .get::<u16>(self.key())
+            .expect("missing equipment rental price")
+    }
+}
+
+impl Priced for Order {
+    fn price_in_cents(&self, snapshot: &Snapshot, during_discount_period: bool) -> u16 {
+        match self {
+            Order::License(license_type, insurance_level, insurance_options, equipment_rental) => {
+                license_type.price_in_cents(snapshot, during_discount_period)
+                    + insurance_level.price_in_cents(snapshot, during_discount_period)
+                    + insurance_options
+                        .iter()
+                        .map(|it| it.price_in_cents(snapshot, during_discount_period))
+                        .sum::<u16>()
+                    + equipment_rental
+                        .as_ref()
+                        .map(|it| it.price_in_cents(snapshot, during_discount_period))
+                        .unwrap_or_default()
+            }
         }
     }
-    let structure_fee = snapshot
-        .get::<u16>(license_type.key())
-        .expect("missing structure fee");
-    let insurance_level_price = snapshot
-        .get::<u16>(insurance_level.key())
-        .expect("missing license price");
-    let mut price = license_fees.federal_fee_in_cents
-        + license_fees.regional_fee_in_cents
-        + license_fees.department_fee_in_cents
-        + structure_fee
-        + insurance_level_price;
-    for option in insurance_options {
-        let option_price = snapshot
-            .get::<u16>(option.key())
-            .expect("missing license price");
-        price += option_price;
-    }
-    if let Some(equipment_rental) = equipment_rental {
-        let equipment_rental_price = snapshot
-            .get::<u16>(equipment_rental.key())
-            .expect("missing equipment rental price");
-        price += equipment_rental_price;
-    }
-    price
 }
 
 #[cfg(test)]

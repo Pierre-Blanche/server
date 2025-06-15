@@ -1,6 +1,7 @@
 use crate::http_client::json_client;
 use crate::myffme::{user_address, Address};
-use crate::order::Order;
+use crate::order::{Order, Priced};
+use crate::season::is_during_discount_period;
 use crate::user::Metadata;
 use hyper::header::{HeaderValue, AUTHORIZATION};
 use pinboard::Pinboard;
@@ -124,7 +125,7 @@ pub struct Checkout {
 
 pub async fn init_transaction(snapshot: &Snapshot, user: &User, order: &Order) -> Option<Checkout> {
     let client = json_client();
-    let price = order.price_in_cents(snapshot);
+    let price = order.price_in_cents(snapshot, is_during_discount_period(None));
     let return_url = format!("https://www.{}/user", *DOMAIN_APEX);
     let address = if let Some(ffme_id) = user
         .metadata
