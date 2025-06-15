@@ -2,12 +2,9 @@ use http_body_util::{Either, Empty, Full};
 use hyper::body::{Bytes, Incoming};
 use hyper::{Request, Response};
 use pierre_blanche_server::update::update_loop;
-use pinboard::NonEmptyPinboard;
 use std::sync::Arc;
 use tiered_server::api::Extension;
 use tiered_server::server::serve;
-use tiered_server::store::Snapshot;
-use zip_static_handler::handler::Handler;
 
 struct ApiExtension;
 
@@ -15,9 +12,7 @@ impl Extension for ApiExtension {
     async fn handle_api_extension(
         &self,
         _request: Request<Incoming>,
-        _store_cache: &Arc<NonEmptyPinboard<Snapshot>>,
-        _handler: Arc<Handler>,
-        _server_name: Arc<String>,
+        _server_name: &Arc<String>,
     ) -> Option<Response<Either<Full<Bytes>, Empty<Bytes>>>> {
         None
     }
@@ -83,7 +78,7 @@ mod tests {
                 "pierre_blanche_server=debug,tiered_server=debug",
             ))
             .init();
-        let snapshot = snapshot(None).await.expect("failed to get snapshot");
+        let snapshot = snapshot();
         let backup = snapshot.backup().await.expect("failed to create backup");
         File::options()
             .write(true)
@@ -100,7 +95,7 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_restore() {
-        let snapshot = snapshot(None).await.expect("failed to get snapshot");
+        let snapshot = snapshot();
         let mut backup = Vec::new();
         let _ = File::options()
             .read(true)
@@ -132,7 +127,7 @@ mod tests {
                 "pierre_blanche_server=debug,tiered_server=debug,zip_static_handler=info,hyper=info",
             ))
             .init();
-        let snapshot = snapshot(None).await.expect("failed to get snapshot");
+        let snapshot = snapshot();
         let existing_users = snapshot
             .list::<User>("acc/")
             .map(|(_, it)| it)
@@ -205,7 +200,7 @@ mod tests {
                 let mut user = user.clone();
                 user.metadata = Some(metadata);
                 let key = format!("acc/{}", user.id);
-                Snapshot::set(key.as_str(), &user)
+                Snapshot::set_and_return_before_update(key.as_str(), &user)
                     .await
                     .expect("failed to update user");
             } else {
@@ -225,7 +220,7 @@ mod tests {
                         serde_json::to_value(metadata).expect("failed to serialize metadata"),
                     ),
                 };
-                Snapshot::set(key.as_str(), &user)
+                Snapshot::set_and_return_before_update(key.as_str(), &user)
                     .await
                     .expect("failed to add user");
             }
@@ -246,7 +241,7 @@ mod tests {
                 "pierre_blanche_server=debug,tiered_server=debug,zip_static_handler=info,hyper=info",
             ))
             .init();
-        let snapshot = snapshot(None).await.expect("failed to get snapshot");
+        let snapshot = snapshot();
         let entries = snapshot
             .list::<User>("acc/")
             .map(|(k, v)| (k.to_string(), v))
@@ -351,7 +346,7 @@ mod tests {
             }
         }
         for (key, user) in updates {
-            Snapshot::set(&key, &user)
+            Snapshot::set_and_return_before_update(&key, &user)
                 .await
                 .expect("failed to update user");
         }

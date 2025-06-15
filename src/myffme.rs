@@ -1157,14 +1157,14 @@ async fn options() -> Option<(Vec<InsuranceLevelOption>, Vec<InsuranceOptionOpti
     Some((options.levels, options.options))
 }
 
-#[derive(Default)]
+#[derive(Serialize, Deserialize, Default)]
 pub struct LicenseFees {
-    federal_fee_in_cents: u16,
-    regional_fee_in_cents: u16,
-    department_fee_in_cents: u16,
+    pub federal_fee_in_cents: u16,
+    pub regional_fee_in_cents: u16,
+    pub department_fee_in_cents: u16,
 }
 
-async fn prices(
+pub async fn prices(
     season: Option<u16>,
 ) -> Option<(
     BTreeMap<LicenseType, LicenseFees>,

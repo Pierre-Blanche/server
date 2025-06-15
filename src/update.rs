@@ -2,6 +2,7 @@ use crate::chrome::{update_chrome_version, CHROME_VERSION, USERAGENT_VALIDITY_SE
 use crate::myffme::{
     update_myffme_bearer_token, MYFFME_AUTHORIZATION, MYFFME_AUTHORIZATION_VALIDITY_SECONDS,
 };
+use crate::order::update_prices;
 use std::thread;
 use std::time::{Duration, SystemTime};
 use tokio::time::sleep;
@@ -13,6 +14,7 @@ pub async fn update_loop() {
         .as_secs() as u32;
     update_chrome_version(timestamp).await;
     let _ = update_myffme_bearer_token(timestamp).await;
+    let _ = update_prices().await;
     thread::spawn(move || {
         tokio::runtime::Builder::new_current_thread()
             .enable_time()

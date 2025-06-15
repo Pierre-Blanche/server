@@ -4,11 +4,12 @@ use crate::user::MedicalCertificateStatus;
 use crate::user::{Competition, CompetitionResult, Metadata};
 use reqwest::Url;
 use scraper::{Html, Selector};
+use std::sync::Arc;
 use tiered_server::store::Snapshot;
 use tiered_server::user::User;
 use tracing::warn;
 
-pub async fn update_competition_results(snapshot: &Snapshot) -> Option<()> {
+pub async fn update_competition_results(snapshot: &Arc<Snapshot>) -> Option<()> {
     let season = current_season(None);
     let current_data = snapshot
         .list::<User>("acc/")
@@ -38,7 +39,7 @@ pub async fn update_competition_results(snapshot: &Snapshot) -> Option<()> {
                     if results.len() != competition_results.len() {
                         metadata.competition_results = Some(results);
                         user.metadata = Some(serde_json::to_value(metadata).unwrap());
-                        Snapshot::set(key, &user).await?;
+                        Snapshot::set_and_wait_for_update(key, &user).await?;
                     }
                 }
             }
