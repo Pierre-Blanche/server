@@ -1619,7 +1619,6 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
- "zip_static_handler",
 ]
 
 [[package]]

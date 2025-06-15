@@ -37,6 +37,7 @@ features = []
 
 [dependencies.reqwest]
 version = "0.12"
+default-features = false
 features = ["blocking", "rustls-tls", "multipart", "json", "deflate", "gzip", "brotli", "zstd"]
 
 [dependencies.http-body-util]
@@ -64,11 +65,6 @@ version = "1.0"
 default-features = false
 features = ["std", "preserve_order"]
 
-[dependencies.zip_static_handler]
-version = "0.18"
-default-features = false
-features = ["hyper"]
-
 [dependencies.fastrand]
 version = "2.3"
 default-features = false
@@ -79,6 +75,6 @@ version = "0.4"
 default-features = false
 features = ["std"]
 
-#[profile.release]
-#lto = "fat"
-#codegen-units = 1
+[profile.release]
+lto = "fat"
+codegen-units = 1
