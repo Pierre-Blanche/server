@@ -266,9 +266,17 @@ fn price_in_cents<'a>(
         .get::<LicenseFees>(license_type.key())
         .expect("missing license price");
     if is_during_discount_period(timestamp) {
-        license_fees.federal_fee_in_cents /= 2;
+        match license_type {
+            LicenseType::Adult
+            | LicenseType::Child
+            | LicenseType::Family
+            | LicenseType::NonPracticing => {
+                license_fees.federal_fee_in_cents /= 2;
+            }
+            _ => {}
+        }
     }
-    let mut structure_fee = snapshot
+    let structure_fee = snapshot
         .get::<u16>(license_type.key())
         .expect("missing structure fee");
     let insurance_level_price = snapshot
