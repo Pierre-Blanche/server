@@ -99,7 +99,7 @@ pub trait Priced {
     fn price_in_cents(&self, snapshot: &Snapshot, during_discount_period: bool) -> u16;
 }
 
-trait Keyed {
+pub(crate) trait Keyed {
     fn key(&self) -> &'static str;
 }
 
@@ -221,9 +221,9 @@ impl Display for Order {
     }
 }
 
-struct BaseLicensePrice;
+pub struct BaseLicensePrice;
 
-struct MembershipFee(LicenseType);
+pub struct MembershipFee(LicenseType);
 
 #[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Serialize)]
 pub enum InsuranceLevel {

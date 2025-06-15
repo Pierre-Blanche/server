@@ -1158,7 +1158,7 @@ async fn options() -> Option<(Vec<InsuranceLevelOption>, Vec<InsuranceOptionOpti
 }
 
 #[derive(Serialize, Deserialize, Default)]
-pub struct LicenseFees {
+pub(crate) struct LicenseFees {
     pub federal_fee_in_cents: u16,
     pub regional_fee_in_cents: u16,
     pub department_fee_in_cents: u16,
