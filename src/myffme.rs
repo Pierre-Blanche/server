@@ -4,7 +4,6 @@ use crate::order::{InsuranceLevel, InsuranceOption};
 use crate::season::current_season;
 use crate::user::LicenseType::NonPracticing;
 use crate::user::{Gender, LicenseType, MedicalCertificateStatus, Metadata, Structure};
-use http_body_util::BodyExt;
 use hyper::header::{AUTHORIZATION, ORIGIN, REFERER};
 use hyper::http::{HeaderName, HeaderValue};
 use pinboard::Pinboard;
@@ -19,7 +18,7 @@ use tiered_server::env::{secret_value, ConfigurationKey};
 use tiered_server::norm::{normalize_first_name, normalize_last_name};
 #[allow(unused_imports)]
 use tokio::io::AsyncWriteExt;
-use tracing::debug;
+use tracing::{debug, warn};
 
 pub(crate) struct Authorization {
     pub(crate) bearer_token: HeaderValue,
@@ -74,8 +73,6 @@ pub async fn update_myffme_bearer_token(timestamp: u32) -> Option<String> {
             Ok(token) => {
                 let bearer_token =
                     HeaderValue::try_from(format!("Bearer {}", token.token)).unwrap();
-                #[cfg(test)]
-                println!("bearer token: {}", bearer_token.to_str().unwrap());
                 MYFFME_AUTHORIZATION.set(Authorization {
                     bearer_token,
                     timestamp,
@@ -204,12 +201,25 @@ pub async fn licensees(structure_id: u32, season: u16) -> Option<Vec<Member>> {
             .await
             .unwrap();
         serde_json::from_str::<GraphqlResponse>(&text)
+            .map_err(|err| {
+                eprintln!("{err:?}");
+                err
+            })
             .ok()?
             .data
             .list
     };
     #[cfg(not(test))]
-    let users = response.json::<GraphqlResponse>().await.ok()?.data.list;
+    let users = response
+        .json::<GraphqlResponse>()
+        .await
+        .map_err(|err| {
+            warn!("{err:?}");
+            err
+        })
+        .ok()?
+        .data
+        .list;
     let addresses = user_addresses(&user_ids).await?;
     let medical_certificates = user_medical_certificates(&user_ids, season).await?;
     let health_questionnaires = user_health_questionnaires(&user_ids, season).await?;
@@ -251,7 +261,14 @@ async fn users_response_by_license_numbers(license_numbers: &[u32]) -> Option<Re
         }))
         .build()
         .ok()?;
-    client.execute(request).await.ok()
+    client
+        .execute(request)
+        .await
+        .map_err(|err| {
+            warn!("{err:?}");
+            err
+        })
+        .ok()
 }
 
 async fn users_response_by_ids(ids: &[&str]) -> Option<Response> {
@@ -277,7 +294,14 @@ async fn users_response_by_ids(ids: &[&str]) -> Option<Response> {
         }))
         .build()
         .ok()?;
-    client.execute(request).await.ok()
+    client
+        .execute(request)
+        .await
+        .map_err(|err| {
+            warn!("{err:?}");
+            err
+        })
+        .ok()
 }
 
 async fn users_response_by_structure(structure_id: u32) -> Option<Response> {
@@ -303,7 +327,14 @@ async fn users_response_by_structure(structure_id: u32) -> Option<Response> {
         }))
         .build()
         .ok()?;
-    client.execute(request).await.ok()
+    client
+        .execute(request)
+        .await
+        .map_err(|err| {
+            warn!("{err:?}");
+            err
+        })
+        .ok()
 }
 
 async fn users_response_by_dob(dob: u32) -> Option<Response> {
@@ -335,7 +366,14 @@ async fn users_response_by_dob(dob: u32) -> Option<Response> {
         }))
         .build()
         .ok()?;
-    client.execute(request).await.ok()
+    client
+        .execute(request)
+        .await
+        .map_err(|err| {
+            warn!("{err:?}");
+            err
+        })
+        .ok()
 }
 
 async fn users_response_to_members(response: Response, season: u16) -> Option<Vec<Member>> {
@@ -356,12 +394,25 @@ async fn users_response_to_members(response: Response, season: u16) -> Option<Ve
             .await
             .unwrap();
         serde_json::from_str::<GraphqlResponse>(&text)
+            .map_err(|err| {
+                eprintln!("{err:?}");
+                err
+            })
             .ok()?
             .data
             .list
     };
     #[cfg(not(test))]
-    let users = response.json::<GraphqlResponse>().await.ok()?.data.list;
+    let users = response
+        .json::<GraphqlResponse>()
+        .await
+        .map_err(|err| {
+            warn!("{err:?}");
+            err
+        })
+        .ok()?
+        .data
+        .list;
     let user_ids = users.iter().map(|it| it.id.as_str()).collect::<Vec<_>>();
     let licenses = user_licenses(&user_ids, season).await?;
     let addresses = user_addresses(&user_ids).await?;
@@ -519,7 +570,14 @@ async fn user_medical_certificates(
         }))
         .build()
         .ok()?;
-    let response = client.execute(request).await.ok()?;
+    let response = client
+        .execute(request)
+        .await
+        .map_err(|err| {
+            warn!("{err:?}");
+            err
+        })
+        .ok()?;
     #[derive(Deserialize)]
     struct DocumentList {
         list: Vec<Document>,
@@ -555,7 +613,16 @@ async fn user_medical_certificates(
             .list
     };
     #[cfg(not(test))]
-    let documents = response.json::<GraphqlResponse>().await.ok()?.data.list;
+    let documents = response
+        .json::<GraphqlResponse>()
+        .await
+        .map_err(|err| {
+            warn!("{err:?}");
+            err
+        })
+        .ok()?
+        .data
+        .list;
     Some(
         documents
             .into_iter()
@@ -630,7 +697,16 @@ async fn user_health_questionnaires(
             .list
     };
     #[cfg(not(test))]
-    let documents = response.json::<GraphqlResponse>().await.ok()?.data.list;
+    let documents = response
+        .json::<GraphqlResponse>()
+        .await
+        .map_err(|err| {
+            warn!("{err:?}");
+            err
+        })
+        .ok()?
+        .data
+        .list;
     Some(
         documents
             .into_iter()
@@ -707,7 +783,16 @@ async fn user_addresses(ids: &[&str]) -> Option<BTreeMap<String, Address>> {
             .list
     };
     #[cfg(not(test))]
-    let addresses = response.json::<GraphqlResponse>().await.ok()?.data.list;
+    let addresses = response
+        .json::<GraphqlResponse>()
+        .await
+        .map_err(|err| {
+            warn!("{err:?}");
+            err
+        })
+        .ok()?
+        .data
+        .list;
     Some(
         addresses
             .into_iter()
@@ -779,7 +864,16 @@ async fn user_licenses(ids: &[&str], season: u16) -> Option<BTreeMap<String, Lic
             .list
     };
     #[cfg(not(test))]
-    let licenses = response.json::<GraphqlResponse>().await.ok()?.data.list;
+    let licenses = response
+        .json::<GraphqlResponse>()
+        .await
+        .map_err(|err| {
+            warn!("{err:?}");
+            err
+        })
+        .ok()?
+        .data
+        .list;
     Some(
         licenses
             .into_iter()
@@ -851,7 +945,16 @@ async fn structure_licenses(structure_id: u32, season: u16) -> Option<BTreeMap<S
             .list
     };
     #[cfg(not(test))]
-    let licenses = response.json::<GraphqlResponse>().await.ok()?.data.list;
+    let licenses = response
+        .json::<GraphqlResponse>()
+        .await
+        .map_err(|err| {
+            warn!("{err:?}");
+            err
+        })
+        .ok()?
+        .data
+        .list;
     Some(
         licenses
             .into_iter()
@@ -922,7 +1025,16 @@ async fn structures_by_ids(ids: &[u32]) -> Option<BTreeMap<u32, Structure>> {
             .list
     };
     #[cfg(not(test))]
-    let structures = response.json::<GraphqlResponse>().await.ok()?.data.list;
+    let structures = response
+        .json::<GraphqlResponse>()
+        .await
+        .map_err(|err| {
+            warn!("{err:?}");
+            err
+        })
+        .ok()?
+        .data
+        .list;
     Some(
         structures
             .into_iter()
@@ -1006,6 +1118,10 @@ async fn structure_hierarchy_by_id(id: u32) -> Option<StructureHierarchy> {
     let structure_hierarchy = response
         .json::<GraphqlResponse>()
         .await
+        .map_err(|err| {
+            warn!("{err:?}");
+            err
+        })
         .ok()?
         .data
         .list
@@ -1078,7 +1194,16 @@ async fn products() -> Option<Vec<Product>> {
             .list
     };
     #[cfg(not(test))]
-    let products = response.json::<GraphqlResponse>().await.ok()?.data.list;
+    let products = response
+        .json::<GraphqlResponse>()
+        .await
+        .map_err(|err| {
+            warn!("{err:?}");
+            err
+        })
+        .ok()?
+        .data
+        .list;
     Some(products)
 }
 
@@ -1153,7 +1278,15 @@ async fn options() -> Option<(Vec<InsuranceLevelOption>, Vec<InsuranceOptionOpti
             .data
     };
     #[cfg(not(test))]
-    let options = response.json::<GraphqlResponse>().await.ok()?.data;
+    let options = response
+        .json::<GraphqlResponse>()
+        .await
+        .map_err(|err| {
+            warn!("{err:?}");
+            err
+        })
+        .ok()?
+        .data;
     Some((options.levels, options.options))
 }
 
@@ -1276,7 +1409,15 @@ pub async fn prices(
         products: product_list,
         levels: level_list,
         options: option_list,
-    } = response.json::<GraphqlResponse>().await.ok()?.data;
+    } = response
+        .json::<GraphqlResponse>()
+        .await
+        .map_err(|err| {
+            warn!("{err:?}");
+            err
+        })
+        .ok()?
+        .data;
     let mut license_prices = BTreeMap::new();
     for price in product_list.into_iter() {
         if let Some(license_type) = products
@@ -1399,6 +1540,10 @@ pub async fn update_email(user_id: &str, email: &str, alt_email: Option<&str>) -
                 .await
                 .unwrap();
             serde_json::from_str::<GraphqlResponse>(&text)
+                .map_err(|err| {
+                    eprintln!("{err:?}");
+                    err
+                })
                 .ok()?
                 .data
                 .result
@@ -1408,6 +1553,10 @@ pub async fn update_email(user_id: &str, email: &str, alt_email: Option<&str>) -
         let id = response
             .json::<GraphqlResponse>()
             .await
+            .map_err(|err| {
+                warn!("{err:?}");
+                err
+            })
             .ok()?
             .data
             .result
@@ -1486,6 +1635,10 @@ pub async fn update_address(
                 .await
                 .unwrap();
             serde_json::from_str::<GraphqlResponse>(&text)
+                .map_err(|err| {
+                    eprintln!("{err:?}");
+                    err
+                })
                 .ok()?
                 .data
                 .result
@@ -1495,6 +1648,10 @@ pub async fn update_address(
         let affected_rows = response
             .json::<GraphqlResponse>()
             .await
+            .map_err(|err| {
+                warn!("{err:?}");
+                err
+            })
             .ok()?
             .data
             .result
@@ -1502,7 +1659,7 @@ pub async fn update_address(
         if affected_rows > 0 {
             Some(())
         } else {
-            let client = crate::myffme::json_client();
+            let client = json_client();
             let request = client
                 .post(url.as_str())
                 .header(ORIGIN, HeaderValue::from_static("https://www.myffme.fr"))

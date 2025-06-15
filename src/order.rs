@@ -19,6 +19,7 @@ pub async fn update_prices() -> Option<()> {
         Snapshot::set_and_wait_for_update(EquipmentRental.key(), &price).await?;
     }
     let (mut license_types, mut levels, mut options) = prices(None).await?;
+    let mut default_level_price = None;
     for level in [
         InsuranceLevel::RC,
         InsuranceLevel::Base,
@@ -29,6 +30,9 @@ pub async fn update_prices() -> Option<()> {
         if let Some(found) = levels.remove(&level) {
             if Some(found) != price {
                 Snapshot::set_and_wait_for_update(level.key(), &found).await?;
+            }
+            if level == InsuranceLevel::default() {
+                default_level_price = price;
             }
         }
     }
@@ -45,41 +49,46 @@ pub async fn update_prices() -> Option<()> {
             }
         }
     }
-    let default_level_price = levels.remove(&InsuranceLevel::default())?;
-    for license_type in [
-        LicenseType::Adult,
-        LicenseType::Child,
-        LicenseType::Family,
-        LicenseType::NonMemberAdult,
-        LicenseType::NonMemberChild,
-    ] {
-        let fees = snapshot.get::<LicenseFees>(license_type.key());
-        let fee = snapshot.get::<u16>(MembershipFee(license_type).key());
-        if let Some(found) = license_types.remove(&license_type) {
-            if Some(found.federal_fee_in_cents) != fees.as_ref().map(|it| it.federal_fee_in_cents)
-                || Some(found.regional_fee_in_cents)
-                    != fees.as_ref().map(|it| it.regional_fee_in_cents)
-                || Some(found.department_fee_in_cents)
-                    != fees.as_ref().map(|it| it.department_fee_in_cents)
-            {
-                Snapshot::set_and_wait_for_update(
-                    license_type.key(),
-                    &LicenseFees {
-                        federal_fee_in_cents: found.federal_fee_in_cents,
-                        regional_fee_in_cents: found.regional_fee_in_cents,
-                        department_fee_in_cents: found.department_fee_in_cents,
-                    },
-                )
-                .await?;
-            }
-            let expected_fee = base_license_price
-                - found.federal_fee_in_cents
-                - found.regional_fee_in_cents
-                - found.department_fee_in_cents
-                - default_level_price;
-            if fee != Some(expected_fee) {
-                Snapshot::set_and_wait_for_update(MembershipFee(license_type).key(), &expected_fee)
+    if let Some(default_level_price) = default_level_price {
+        for license_type in [
+            LicenseType::Adult,
+            LicenseType::Child,
+            LicenseType::Family,
+            LicenseType::NonMemberAdult,
+            LicenseType::NonMemberChild,
+        ] {
+            let fees = snapshot.get::<LicenseFees>(license_type.key());
+            let fee = snapshot.get::<u16>(MembershipFee(license_type).key());
+            if let Some(found) = license_types.remove(&license_type) {
+                if Some(found.federal_fee_in_cents)
+                    != fees.as_ref().map(|it| it.federal_fee_in_cents)
+                    || Some(found.regional_fee_in_cents)
+                        != fees.as_ref().map(|it| it.regional_fee_in_cents)
+                    || Some(found.department_fee_in_cents)
+                        != fees.as_ref().map(|it| it.department_fee_in_cents)
+                {
+                    Snapshot::set_and_wait_for_update(
+                        license_type.key(),
+                        &LicenseFees {
+                            federal_fee_in_cents: found.federal_fee_in_cents,
+                            regional_fee_in_cents: found.regional_fee_in_cents,
+                            department_fee_in_cents: found.department_fee_in_cents,
+                        },
+                    )
                     .await?;
+                }
+                let expected_fee = base_license_price
+                    - found.federal_fee_in_cents
+                    - found.regional_fee_in_cents
+                    - found.department_fee_in_cents
+                    - default_level_price;
+                if fee != Some(expected_fee) {
+                    Snapshot::set_and_wait_for_update(
+                        MembershipFee(license_type).key(),
+                        &expected_fee,
+                    )
+                    .await?;
+                }
             }
         }
     }
