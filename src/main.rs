@@ -20,7 +20,7 @@ async fn main() {
     tracing_subscriber::fmt()
         .compact()
         .with_ansi(true)
-        .with_target(true)
+        .with_target(false)
         .with_file(false)
         .with_line_number(false)
         .without_time()
