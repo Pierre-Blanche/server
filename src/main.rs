@@ -21,8 +21,8 @@ async fn main() {
         .compact()
         .with_ansi(true)
         .with_target(true)
-        .with_file(true)
-        .with_line_number(true)
+        .with_file(false)
+        .with_line_number(false)
         .without_time()
         .with_env_filter(tracing_subscriber::EnvFilter::new(
             "pierre_blanche_server=debug,tiered_server=info,zip_static_handler=info,hyper=info",
