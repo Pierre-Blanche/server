@@ -16,7 +16,7 @@ use tiered_server::headers::{GET_POST_PUT, JSON};
 use tiered_server::session::SessionState;
 use tiered_server::store::snapshot;
 use tiered_server::user::User;
-use tracing::debug;
+use tracing::{debug, info};
 
 pub struct ApiExtension;
 
@@ -34,7 +34,7 @@ impl Extension for ApiExtension {
                         let mut response = Response::builder();
                         let headers = response.headers_mut().unwrap();
                         headers.insert(ALLOW, GET_POST_PUT);
-                        debug!("405 https://{server_name}/api/user/admin/prices");
+                        info!("405 https://{server_name}/api/user/admin/prices");
                         return Some(
                             response
                                 .status(StatusCode::METHOD_NOT_ALLOWED)
@@ -88,7 +88,7 @@ impl Extension for ApiExtension {
                         .collect::<Vec<_>>();
                         let equipment_rental_price_in_cents =
                             EquipmentRental.price_in_cents(&snapshot, false);
-                        debug!("200 https://{server_name}/api/user/admin/prices");
+                        info!("200 https://{server_name}/api/user/admin/prices");
                         return Some(
                             Response::builder()
                                 .status(StatusCode::OK)
@@ -106,7 +106,7 @@ impl Extension for ApiExtension {
                                 .unwrap(),
                         );
                     } else {
-                        debug!("403 https://{server_name}/api/user/admin/prices");
+                        info!("403 https://{server_name}/api/user/admin/prices");
                         return Some(
                             Response::builder()
                                 .status(StatusCode::FORBIDDEN)
@@ -119,7 +119,7 @@ impl Extension for ApiExtension {
                         let mut response = Response::builder();
                         let headers = response.headers_mut().unwrap();
                         headers.insert(ALLOW, GET_POST_PUT);
-                        debug!("405 https://{server_name}/api/user/admin/users");
+                        info!("405 https://{server_name}/api/user/admin/users");
                         return Some(
                             response
                                 .status(StatusCode::METHOD_NOT_ALLOWED)
@@ -133,7 +133,7 @@ impl Extension for ApiExtension {
                         .is_admin()
                     {
                         let users = snapshot.list::<User>("acc/").collect::<Vec<_>>();
-                        debug!("200 https://{server_name}/api/user/admin/users");
+                        info!("200 https://{server_name}/api/user/admin/users");
                         return Some(
                             Response::builder()
                                 .status(StatusCode::OK)
@@ -144,7 +144,7 @@ impl Extension for ApiExtension {
                                 .unwrap(),
                         );
                     } else {
-                        debug!("403 https://{server_name}/api/user/admin/users");
+                        info!("403 https://{server_name}/api/user/admin/users");
                         return Some(
                             Response::builder()
                                 .status(StatusCode::FORBIDDEN)
@@ -157,7 +157,7 @@ impl Extension for ApiExtension {
                         let mut response = Response::builder();
                         let headers = response.headers_mut().unwrap();
                         headers.insert(ALLOW, GET_POST_PUT);
-                        debug!("405 https://{server_name}/api/user/admin/registrations");
+                        info!("405 https://{server_name}/api/user/admin/registrations");
                         return Some(
                             response
                                 .status(StatusCode::METHOD_NOT_ALLOWED)
@@ -171,7 +171,7 @@ impl Extension for ApiExtension {
                         .is_admin()
                     {
                         let users = snapshot.list::<User>("reg/").collect::<Vec<_>>();
-                        debug!("200 https://{server_name}/api/user/admin/registrations");
+                        info!("200 https://{server_name}/api/user/admin/registrations");
                         return Some(
                             Response::builder()
                                 .status(StatusCode::OK)
@@ -182,7 +182,7 @@ impl Extension for ApiExtension {
                                 .unwrap(),
                         );
                     } else {
-                        debug!("403 https://{server_name}/api/user/admin/registrations");
+                        info!("403 https://{server_name}/api/user/admin/registrations");
                         return Some(
                             Response::builder()
                                 .status(StatusCode::FORBIDDEN)
@@ -196,7 +196,7 @@ impl Extension for ApiExtension {
                     let mut response = Response::builder();
                     let headers = response.headers_mut().unwrap();
                     headers.insert(ALLOW, GET_POST_PUT);
-                    debug!("405 https://{server_name}/api/user/prices");
+                    info!("405 https://{server_name}/api/user/prices");
                     return Some(
                         response
                             .status(StatusCode::METHOD_NOT_ALLOWED)
@@ -253,7 +253,7 @@ impl Extension for ApiExtension {
                     .collect::<Vec<_>>();
                     let equipment_rental_price_in_cents =
                         EquipmentRental.price_in_cents(&snapshot, is_during_discount_period);
-                    debug!("200 https://{server_name}/api/user/prices");
+                    info!("200 https://{server_name}/api/user/prices");
                     return Some(
                         Response::builder()
                             .status(StatusCode::OK)
@@ -270,7 +270,7 @@ impl Extension for ApiExtension {
                             .unwrap(),
                     );
                 } else {
-                    debug!("403 https://{server_name}/api/user/prices");
+                    info!("403 https://{server_name}/api/user/prices");
                     return Some(
                         Response::builder()
                             .status(StatusCode::FORBIDDEN)

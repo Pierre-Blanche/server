@@ -80,12 +80,12 @@ pub async fn update_myffme_bearer_token(timestamp: u32) -> Option<String> {
                 Some(token.token)
             }
             Err(err) => {
-                debug!("failed to parse login response:\n{err:?}");
+                warn!("failed to parse login response:\n{err:?}");
                 None
             }
         },
         Err(err) => {
-            debug!("failed to get login response:\n{err:?}");
+            warn!("failed to get login response:\n{err:?}");
             None
         }
     }

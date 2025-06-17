@@ -2,7 +2,7 @@ use crate::http_client::json_client;
 use pinboard::Pinboard;
 use serde::Deserialize;
 use std::sync::LazyLock;
-use tracing::debug;
+use tracing::{info, warn};
 
 pub(crate) const USERAGENT_VALIDITY_SECONDS: u32 = 250_000; // ~3days
 
@@ -28,7 +28,7 @@ pub(crate) async fn update_chrome_version(timestamp: u32) -> bool {
         Ok(response) => match response.json::<Vec<Release>>().await {
             Ok(it) => {
                 if it.is_empty() {
-                    debug!("failed to get chrome version");
+                    warn!("failed to get chrome version");
                     return false;
                 }
                 CHROME_VERSION.set(ChromeVersion {
@@ -38,12 +38,12 @@ pub(crate) async fn update_chrome_version(timestamp: u32) -> bool {
                 true
             }
             Err(err) => {
-                debug!("failed to get chrome version:\n{err:?}");
+                warn!("failed to get chrome version:\n{err:?}");
                 false
             }
         },
         Err(err) => {
-            debug!("failed to get response from chromiumdash for the latest chrome version:\n{err:?}");
+            warn!("failed to get response from chromiumdash for the latest chrome version:\n{err:?}");
             false
         }
     }
