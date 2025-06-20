@@ -1,18 +1,21 @@
 use crate::category::Category;
-use crate::myffme::LicenseFees;
+use crate::myffme::{update_email, LicenseFees};
 use crate::order::{
     BaseLicensePrice, EquipmentRental, InsuranceLevel, InsuranceOption, Keyed, Priced,
 };
 use crate::season::{current_season, is_during_discount_period};
-use crate::user::LicenseType;
+use crate::user::{LicenseType, Metadata};
 use http_body_util::{Either, Empty, Full};
 use hyper::body::{Bytes, Incoming};
 use hyper::header::{ALLOW, CONTENT_TYPE};
 use hyper::{Method, Request, Response, StatusCode};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::fs::metadata;
 use std::sync::Arc;
 use tiered_server::api::Extension;
-use tiered_server::headers::{GET_POST_PUT, JSON};
+use tiered_server::headers::{GET, GET_POST, JSON};
+use tiered_server::otp::Action;
 use tiered_server::session::SessionState;
 use tiered_server::store::snapshot;
 use tiered_server::user::User;
@@ -33,7 +36,7 @@ impl Extension for ApiExtension {
                     if request.method() != Method::GET && request.method() != Method::POST {
                         let mut response = Response::builder();
                         let headers = response.headers_mut().unwrap();
-                        headers.insert(ALLOW, GET_POST_PUT);
+                        headers.insert(ALLOW, GET_POST);
                         info!("405 https://{server_name}/api/user/admin/prices");
                         return Some(
                             response
@@ -118,7 +121,7 @@ impl Extension for ApiExtension {
                     if request.method() != Method::GET {
                         let mut response = Response::builder();
                         let headers = response.headers_mut().unwrap();
-                        headers.insert(ALLOW, GET_POST_PUT);
+                        headers.insert(ALLOW, GET);
                         info!("405 https://{server_name}/api/user/admin/users");
                         return Some(
                             response
@@ -156,7 +159,7 @@ impl Extension for ApiExtension {
                     if request.method() != Method::GET {
                         let mut response = Response::builder();
                         let headers = response.headers_mut().unwrap();
-                        headers.insert(ALLOW, GET_POST_PUT);
+                        headers.insert(ALLOW, GET);
                         info!("405 https://{server_name}/api/user/admin/registrations");
                         return Some(
                             response
@@ -195,7 +198,7 @@ impl Extension for ApiExtension {
                 if request.method() != Method::GET {
                     let mut response = Response::builder();
                     let headers = response.headers_mut().unwrap();
-                    headers.insert(ALLOW, GET_POST_PUT);
+                    headers.insert(ALLOW, GET);
                     info!("405 https://{server_name}/api/user/prices");
                     return Some(
                         response
@@ -281,6 +284,27 @@ impl Extension for ApiExtension {
             }
         }
         None
+    }
+    async fn perform_action(
+        &self,
+        user: &User,
+        action: Action,
+        value: Option<&Value>,
+    ) -> Option<()> {
+        match action {
+            Action::EmailUpdate => {
+                if let Some(ref myffme_user_id) = user.metadata.as_ref().and_then(|value| {
+                    Metadata::deserialize(value)
+                        .ok()
+                        .and_then(|it| it.myffme_user_id)
+                }) {
+                    let email = value.and_then(|value| String::deserialize(value).ok())?;
+                    update_email(myffme_user_id, &email, user.email()).await?;
+                }
+            }
+            _ => {}
+        }
+        Some(())
     }
 }
 
