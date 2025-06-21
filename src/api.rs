@@ -135,7 +135,10 @@ impl Extension for ApiExtension {
                         .await
                         .is_admin()
                     {
-                        let users = snapshot.list::<User>("acc/").collect::<Vec<_>>();
+                        let users = snapshot
+                            .list::<User>("acc/")
+                            .map(|(_, value)| value)
+                            .collect::<Vec<_>>();
                         info!("200 https://{server_name}/api/user/admin/users");
                         return Some(
                             Response::builder()
