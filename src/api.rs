@@ -19,7 +19,7 @@ use tiered_server::otp::Action;
 use tiered_server::session::SessionState;
 use tiered_server::store::snapshot;
 use tiered_server::user::User;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 pub struct ApiExtension;
 
@@ -217,13 +217,37 @@ impl Extension for ApiExtension {
     ) -> Option<()> {
         match action {
             Action::EmailUpdate => {
+                debug!("email update");
                 if let Some(ref myffme_user_id) = user.metadata.as_ref().and_then(|value| {
                     Metadata::deserialize(value)
+                        .map_err(|err| {
+                            warn!("failed to deserialize metadata: {:?}", err);
+                        })
                         .ok()
                         .and_then(|it| it.myffme_user_id)
                 }) {
-                    let email = value.and_then(|value| String::deserialize(value).ok())?;
-                    update_email(myffme_user_id, &email, user.email()).await?;
+                    let email = value.and_then(|value| {
+                        #[derive(Deserialize)]
+                        struct NewEmail {
+                            new_email: String,
+                        }
+                        NewEmail::deserialize(value)
+                            .map(|it| it.new_email)
+                            .map_err(|err| {
+                                warn!("failed to deserialize email: {:?}", err);
+                                err
+                            })
+                            .ok()
+                    })?;
+                    return if update_email(myffme_user_id, &email, user.email())
+                        .await
+                        .is_some()
+                    {
+                        Some(())
+                    } else {
+                        warn!("failed to update email");
+                        None
+                    };
                 }
             }
             _ => {}
