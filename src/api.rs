@@ -1,5 +1,6 @@
 use crate::category::Category;
-use crate::myffme::{update_email, LicenseFees};
+use crate::myffme::email::update_email;
+use crate::myffme::license::LicenseFees;
 use crate::order::{
     BaseLicensePrice, EquipmentRental, InsuranceLevel, InsuranceOption, Keyed, Priced,
 };
@@ -11,11 +12,10 @@ use hyper::header::{ALLOW, CONTENT_TYPE};
 use hyper::{Method, Request, Response, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::fs::metadata;
 use std::sync::Arc;
 use tiered_server::api::Extension;
 use tiered_server::headers::{GET, GET_POST, JSON};
-use tiered_server::otp::Action;
+use tiered_server::otp::action::Action;
 use tiered_server::session::SessionState;
 use tiered_server::store::snapshot;
 use tiered_server::user::User;

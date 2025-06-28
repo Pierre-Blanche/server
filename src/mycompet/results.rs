@@ -1,52 +1,8 @@
 use crate::http_client::html_client;
-use crate::season::current_season;
-use crate::user::MedicalCertificateStatus;
-use crate::user::{Competition, CompetitionResult, Metadata};
+use crate::user::{Competition, CompetitionResult};
 use reqwest::Url;
 use scraper::{Html, Selector};
-use std::sync::Arc;
-use tiered_server::store::Snapshot;
-use tiered_server::user::User;
 use tracing::warn;
-
-pub async fn update_competition_results(snapshot: &Arc<Snapshot>) -> Option<()> {
-    let season = current_season(None);
-    let current_data = snapshot
-        .list::<User>("acc/")
-        .filter_map(|(key, mut user)| {
-            if let Some(metadata) = user.metadata {
-                let metadata = serde_json::from_value::<Metadata>(metadata).ok()?;
-                if metadata.latest_license_season == Some(season)
-                    && metadata.medical_certificate_status
-                        == Some(MedicalCertificateStatus::Competition)
-                    && metadata.license_number.is_some()
-                {
-                    user.metadata = Some(serde_json::to_value(&metadata).unwrap());
-                    Some((key, (user, metadata)))
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>();
-    for (key, (mut user, mut metadata)) in current_data.into_iter() {
-        let license_number = metadata.license_number.unwrap();
-        if let Some(results) = competition_results(license_number).await {
-            if !results.is_empty() {
-                if let Some(competition_results) = metadata.competition_results {
-                    if results.len() != competition_results.len() {
-                        metadata.competition_results = Some(results);
-                        user.metadata = Some(serde_json::to_value(metadata).unwrap());
-                        Snapshot::set_and_wait_for_update(key, &user).await?;
-                    }
-                }
-            }
-        }
-    }
-    Some(())
-}
 
 pub async fn competition_results(license_number: u32) -> Option<Vec<CompetitionResult>> {
     let client = html_client();
@@ -183,15 +139,6 @@ pub async fn competition_results(license_number: u32) -> Option<Vec<CompetitionR
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test() {
-        let license_number = 33109;
-        assert_eq!(
-            "https://mycompet.ffme.fr/resultat/palmares_033109",
-            format!("https://mycompet.ffme.fr/resultat/palmares_{license_number:0>6}")
-        )
-    }
 
     #[tokio::test]
     async fn test_competition_results() {

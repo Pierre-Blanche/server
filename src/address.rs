@@ -1,5 +1,5 @@
 use crate::http_client::json_client;
-use crate::myffme::Address;
+use crate::myffme::address::Address;
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 #[allow(unused_imports)]

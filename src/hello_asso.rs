@@ -1,5 +1,5 @@
 use crate::http_client::json_client;
-use crate::myffme::{user_address, Address};
+use crate::myffme::address::{user_address, Address};
 use crate::order::{Order, Priced};
 use crate::season::is_during_discount_period;
 use crate::user::Metadata;

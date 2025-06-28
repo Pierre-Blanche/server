@@ -1,7 +1,7 @@
 use pierre_blanche_server::address::cities_by_zip_code;
-use pierre_blanche_server::myffme::{
-    member_by_license_number, update_address, update_myffme_bearer_token,
-};
+use pierre_blanche_server::myffme::address::update_address;
+use pierre_blanche_server::myffme::member::member_by_license_number;
+use pierre_blanche_server::myffme::update_myffme_bearer_token;
 use tiered_server::norm::normalize_city;
 
 #[tokio::main]
@@ -40,7 +40,7 @@ async fn update_address_for_user_by_license_number(
 mod tests {
     use super::*;
     use pierre_blanche_server::address::{alternate_city_names, city_name_by_insee, City};
-    use pierre_blanche_server::myffme::members_by_structure;
+    use pierre_blanche_server::myffme::member::members_by_structure;
     use pierre_blanche_server::user::Metadata;
     use std::collections::BTreeMap;
 

@@ -12,9 +12,9 @@ name = "update_address"
 path = "src/tools/update_address.rs"
 
 [dependencies.tiered_server]
-#path = "../tiered_server"
-git = "https://github.com/programingjd/tiered_server.git"
-branch = "main"
+path = "../tiered_server"
+#git = "https://github.com/programingjd/tiered_server.git"
+#branch = "main"
 
 [dependencies.tracing-subscriber]
 version = "0.3"
