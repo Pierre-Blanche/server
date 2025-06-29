@@ -46,10 +46,7 @@ impl Extension for ApiExtension {
                         );
                     }
                     let snapshot = snapshot();
-                    if SessionState::from_headers(request.headers(), &snapshot)
-                        .await
-                        .is_admin()
-                    {
+                    if SessionState::from_headers(request.headers(), &snapshot).is_admin() {
                         let base_license_price_in_cents =
                             snapshot.get::<u16>(BaseLicensePrice.key());
                         let license_types = [LicenseType::Child, LicenseType::Adult]
@@ -133,7 +130,7 @@ impl Extension for ApiExtension {
                 }
                 let snapshot = snapshot();
                 if let SessionState::Valid { user, .. } =
-                    SessionState::from_headers(request.headers(), &snapshot).await
+                    SessionState::from_headers(request.headers(), &snapshot)
                 {
                     let is_during_discount_period = is_during_discount_period(None);
                     let season = current_season(None);
