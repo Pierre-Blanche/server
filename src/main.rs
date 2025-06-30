@@ -25,7 +25,7 @@ async fn main() {
         .with_line_number(false)
         .without_time()
         .with_env_filter(tracing_subscriber::EnvFilter::new(
-            "pierre_blanche_server=trace,tiered_server=trace,zip_static_handler=info,hyper=info",
+            "pierre_blanche_server=debug,tiered_server=debug,zip_static_handler=info,hyper=info",
         ))
         .init();
     update_loop().await;
