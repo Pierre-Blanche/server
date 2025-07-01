@@ -1784,9 +1784,9 @@ checksum = "2b15c43186be67a4fd63bee50d0303afffcef381492ebe2c5d87f324e1b8815c"
 
 [[package]]
 name = "reqwest"
-version = "0.12.21"
+version = "0.12.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c8cea6b35bcceb099f30173754403d2eba0a5dc18cea3630fccd88251909288"
+checksum = "cbc931937e6ca3a06e3b6c0aa7841849b160a90351d6ab467a8b9b9959767531"
 dependencies = [
  "async-compression",
  "base64",
@@ -2259,8 +2259,8 @@ dependencies = [
 
 [[package]]
 name = "tiered_server"
-version = "0.4.5"
-source = "git+https://github.com/programingjd/tiered_server.git?branch=main#5ea4d44a8ac8e61377acf651d3ee4dc3f374f91f"
+version = "0.4.6"
+source = "git+https://github.com/programingjd/tiered_server.git?branch=main#41b6c00a39c7bf3c6f31931009a7f029fcd25e98"
 dependencies = [
  "base64-simd",
  "basic-cookies",
