@@ -2259,8 +2259,8 @@ dependencies = [
 
 [[package]]
 name = "tiered_server"
-version = "0.4.6"
-source = "git+https://github.com/programingjd/tiered_server.git?branch=main#41b6c00a39c7bf3c6f31931009a7f029fcd25e98"
+version = "0.4.7"
+source = "git+https://github.com/programingjd/tiered_server.git?branch=main#d0f55d62fdc5b38a6db7c8a79e3c5eae90dc6400"
 dependencies = [
  "base64-simd",
  "basic-cookies",
