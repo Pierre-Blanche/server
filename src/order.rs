@@ -5,6 +5,7 @@ use serde::Serialize;
 use std::fmt::{Display, Formatter};
 use tiered_server::store::{snapshot, Snapshot};
 
+#[allow(clippy::inconsistent_digit_grouping)]
 pub async fn update_prices() -> Option<()> {
     let snapshot = snapshot();
     let base_license_price = match snapshot.get::<u16>(BaseLicensePrice.key()) {

@@ -11,14 +11,14 @@ use hyper::body::{Bytes, Incoming};
 use hyper::header::{ALLOW, CONTENT_TYPE};
 use hyper::{Method, Request, Response, StatusCode};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::sync::Arc;
-use tiered_server::api::Extension;
+use tiered_server::api::{Action, Extension};
 use tiered_server::headers::{GET, GET_POST, JSON};
-use tiered_server::otp::action::Action;
 use tiered_server::session::SessionState;
 use tiered_server::store::snapshot;
-use tiered_server::user::User;
+use tiered_server::totp::action::Action::{AddEmail, UpdateEmail};
+use tiered_server::totp::action::{EmailAddition, EmailUpdate};
+use tiered_server::user::{Email, IdentificationMethod, User};
 use tracing::{debug, info, warn};
 
 pub struct ApiExtension;
@@ -46,7 +46,10 @@ impl Extension for ApiExtension {
                         );
                     }
                     let snapshot = snapshot();
-                    if SessionState::from_headers(request.headers(), &snapshot).is_admin() {
+                    return if matches!(
+                        SessionState::from_headers(request.headers(), &snapshot),
+                        SessionState::Valid { user, .. } if user.admin
+                    ) {
                         let base_license_price_in_cents =
                             snapshot.get::<u16>(BaseLicensePrice.key());
                         let license_types = [LicenseType::Child, LicenseType::Adult]
@@ -89,7 +92,7 @@ impl Extension for ApiExtension {
                         let equipment_rental_price_in_cents =
                             EquipmentRental.price_in_cents(&snapshot, false);
                         info!("200 https://{server_name}/api/user/admin/prices");
-                        return Some(
+                        Some(
                             Response::builder()
                                 .status(StatusCode::OK)
                                 .header(CONTENT_TYPE, JSON)
@@ -104,16 +107,16 @@ impl Extension for ApiExtension {
                                     .unwrap(),
                                 )))
                                 .unwrap(),
-                        );
+                        )
                     } else {
                         info!("403 https://{server_name}/api/user/admin/prices");
-                        return Some(
+                        Some(
                             Response::builder()
                                 .status(StatusCode::FORBIDDEN)
                                 .body(Either::Right(Empty::new()))
                                 .unwrap(),
-                        );
-                    }
+                        )
+                    };
                 }
             } else if path == "/prices" {
                 if request.method() != Method::GET {
@@ -206,45 +209,92 @@ impl Extension for ApiExtension {
         }
         None
     }
-    async fn perform_action(
-        &self,
-        user: &User,
-        action: Action,
-        value: Option<&Value>,
-    ) -> Option<()> {
+    async fn perform_action(&self, user: &User, action: Action) -> Option<()> {
         match action {
-            Action::EmailUpdate => {
-                debug!("email update");
-                if let Some(ref myffme_user_id) = user.metadata.as_ref().and_then(|value| {
-                    Metadata::deserialize(value)
-                        .map_err(|err| {
-                            warn!("failed to deserialize metadata: {:?}", err);
-                        })
-                        .ok()
-                        .and_then(|it| it.myffme_user_id)
-                }) {
-                    let email = value.and_then(|value| {
-                        #[derive(Deserialize)]
-                        struct NewEmail {
-                            new_email: String,
-                        }
-                        NewEmail::deserialize(value)
-                            .map(|it| it.new_email)
+            Action::Totp(UpdateEmail(EmailUpdate {
+                normalized_new_address,
+                normalized_old_address,
+                ..
+            })) => {
+                // only update if the old email address is the first email address
+                // as the first one should be the one attached to the license.
+                if Some(&normalized_old_address)
+                    == user.identification.iter().find_map(|it| match it {
+                        IdentificationMethod::Email(Email {
+                            normalized_address, ..
+                        }) => Some(normalized_address),
+                        _ => None,
+                    })
+                {
+                    debug!("email update");
+                    if let Some(ref myffme_user_id) = user.metadata.as_ref().and_then(|value| {
+                        Metadata::deserialize(value)
                             .map_err(|err| {
-                                warn!("failed to deserialize email: {:?}", err);
-                                err
+                                warn!("failed to deserialize metadata: {:?}", err);
                             })
                             .ok()
-                    })?;
-                    return if update_email(myffme_user_id, &email, user.email())
-                        .await
-                        .is_some()
-                    {
-                        Some(())
-                    } else {
-                        warn!("failed to update email");
-                        None
-                    };
+                            .and_then(|it| it.myffme_user_id)
+                    }) {
+                        let alt_email = user
+                            .identification
+                            .iter()
+                            .filter_map(|it| match it {
+                                IdentificationMethod::Email(Email {
+                                    normalized_address, ..
+                                }) => Some(normalized_address.as_str()),
+                                _ => None,
+                            })
+                            .nth(1);
+                        return if update_email(myffme_user_id, &normalized_new_address, alt_email)
+                            .await
+                            .is_some()
+                        {
+                            Some(())
+                        } else {
+                            warn!("failed to update email");
+                            None
+                        };
+                    }
+                }
+            }
+            Action::Totp(AddEmail(EmailAddition {
+                normalized_new_address,
+                ..
+            })) => {
+                // update alternate email if it's the second email address.
+                let mut iter = user.identification.iter().filter_map(|it| match it {
+                    IdentificationMethod::Email(Email {
+                        normalized_address, ..
+                    }) => Some(normalized_address),
+                    _ => None,
+                });
+                if let Some(email) = iter.next() {
+                    // make sure the new email is not already the primary email.
+                    if email != &normalized_new_address && iter.next().is_none() {
+                        debug!("alternate email update");
+                        if let Some(ref myffme_user_id) = user.metadata.as_ref().and_then(|value| {
+                            Metadata::deserialize(value)
+                                .map_err(|err| {
+                                    warn!("failed to deserialize metadata: {:?}", err);
+                                })
+                                .ok()
+                                .and_then(|it| it.myffme_user_id)
+                        }) {
+                            return if update_email(
+                                myffme_user_id,
+                                email,
+                                Some(normalized_new_address.as_str()),
+                            )
+                            .await
+                            .is_some()
+                            {
+                                Some(())
+                            } else {
+                                warn!("failed to update alternate email");
+                                None
+                            };
+                        }
+                    }
                 }
             }
             _ => {}

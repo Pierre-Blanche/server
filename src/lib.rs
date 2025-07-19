@@ -127,14 +127,14 @@ mod tests {
                 ..
             } = member;
             let identification = IdentificationMethod::Email(Email::from(email));
-            let first_name_norm = normalize_first_name(first_name.as_str());
-            let last_name_norm = normalize_last_name(last_name.as_str());
+            let normalized_first_name = normalize_first_name(first_name.as_str());
+            let normalized_last_name = normalize_last_name(last_name.as_str());
             if let Some(user) = existing_users
                 .iter()
                 .filter(|&it| {
                     it.date_of_birth == dob
-                        && it.first_name_norm == first_name_norm
-                        && it.last_name_norm == last_name_norm
+                        && it.normalized_first_name == normalized_first_name
+                        && it.normalized_last_name == normalized_last_name
                 })
                 .enumerate()
                 .last()
@@ -171,11 +171,11 @@ mod tests {
                 info!("adding {first_name} {last_name}");
                 let user = User {
                     id,
-                    identification,
+                    identification: vec![identification],
                     last_name,
-                    last_name_norm,
+                    normalized_last_name,
                     first_name,
-                    first_name_norm,
+                    normalized_first_name,
                     date_of_birth: dob,
                     admin: false,
                     metadata: Some(

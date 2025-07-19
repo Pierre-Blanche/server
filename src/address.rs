@@ -15,7 +15,7 @@ pub struct City {
 }
 
 pub async fn city_name_by_insee(insee: &str) -> Option<String> {
-    let mut url = Url::parse(&format!("https://geo.api.gouv.fr/communes/{}", insee)).unwrap();
+    let mut url = Url::parse(&format!("https://geo.api.gouv.fr/communes/{insee}")).unwrap();
     let mut query = url.query_pairs_mut();
     query.append_pair("format", "json");
     query.append_pair("fields", "nom");

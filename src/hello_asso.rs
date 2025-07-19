@@ -175,7 +175,7 @@ pub async fn init_transaction(snapshot: &Snapshot, user: &User, order: &Order) -
             response.json().await.ok()?
         }
         Err(err) => {
-            eprintln!("err: {:?}", err);
+            eprintln!("err: {err:?}");
             None
         }
     }
