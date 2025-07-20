@@ -7,8 +7,8 @@ use reqwest::Url;
 use serde::Deserialize;
 use serde_json::json;
 use std::collections::BTreeMap;
+#[cfg(test)]
 use tokio::io::AsyncWriteExt;
-use tracing::warn;
 
 pub(crate) async fn structures_by_ids(ids: &[u32]) -> Option<BTreeMap<u32, Structure>> {
     let url = Url::parse("https://back-prod.core.myffme.fr/v1/graphql").unwrap();
@@ -73,7 +73,7 @@ pub(crate) async fn structures_by_ids(ids: &[u32]) -> Option<BTreeMap<u32, Struc
         .json::<GraphqlResponse>()
         .await
         .map_err(|err| {
-            warn!("{err:?}");
+            tracing::warn!("{err:?}");
             err
         })
         .ok()?
@@ -157,7 +157,7 @@ pub(crate) async fn structure_licenses(
         .json::<GraphqlResponse>()
         .await
         .map_err(|err| {
-            warn!("{err:?}");
+            tracing::warn!("{err:?}");
             err
         })
         .ok()?
@@ -176,6 +176,7 @@ pub(crate) async fn structure_licenses(
 
 #[derive(Deserialize)]
 pub(crate) struct StructureHierarchy {
+    #[allow(dead_code)]
     pub id: u32,
     pub department_structure_id: u32,
     pub region_structure_id: u32,
@@ -247,7 +248,7 @@ pub(crate) async fn structure_hierarchy_by_id(id: u32) -> Option<StructureHierar
         .json::<GraphqlResponse>()
         .await
         .map_err(|err| {
-            warn!("{err:?}");
+            tracing::warn!("{err:?}");
             err
         })
         .ok()?

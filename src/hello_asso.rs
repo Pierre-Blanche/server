@@ -1,3 +1,5 @@
+#![allow(unused_imports, dead_code)]
+
 use crate::http_client::json_client;
 use crate::myffme::address::{user_address, Address};
 use crate::order::{Order, Priced};

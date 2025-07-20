@@ -1,6 +1,7 @@
 use crate::category::Category;
 use crate::myffme::email::update_email;
 use crate::myffme::license::LicenseFees;
+use crate::myffme::{add_missing_users, update_users_metadata};
 use crate::order::{
     BaseLicensePrice, EquipmentRental, InsuranceLevel, InsuranceOption, Keyed, Priced,
 };
@@ -13,7 +14,7 @@ use hyper::{Method, Request, Response, StatusCode};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tiered_server::api::{Action, Extension};
-use tiered_server::headers::{GET, GET_POST, JSON};
+use tiered_server::headers::{GET, GET_POST, JSON, TEXT};
 use tiered_server::session::SessionState;
 use tiered_server::store::snapshot;
 use tiered_server::totp::action::Action::{AddEmail, UpdateEmail};
@@ -117,6 +118,80 @@ impl Extension for ApiExtension {
                                 .unwrap(),
                         )
                     };
+                } else if path == "/add-missing-users" {
+                    if request.method() != Method::GET {
+                        let mut response = Response::builder();
+                        let headers = response.headers_mut().unwrap();
+                        headers.insert(ALLOW, GET);
+                        info!("405 https://{server_name}/api/user/admin/add-missing-users");
+                        return Some(
+                            response
+                                .status(StatusCode::METHOD_NOT_ALLOWED)
+                                .body(Either::Right(Empty::new()))
+                                .unwrap(),
+                        );
+                    }
+                    match add_missing_users(&snapshot(), None, true).await {
+                        Ok(Some(output)) => {
+                            info!("200 https://{server_name}/api/user/admin/add-missing-users");
+                            let mut response = Response::builder();
+                            let headers = response.headers_mut().unwrap();
+                            headers.insert(CONTENT_TYPE, TEXT);
+                            return Some(
+                                response
+                                    .status(StatusCode::OK)
+                                    .body(Either::Left(Full::from(output)))
+                                    .unwrap(),
+                            );
+                        }
+                        Err(err) => {
+                            info!("500 https://{server_name}/api/user/admin/add-missing-users");
+                            return Some(
+                                Response::builder()
+                                    .status(StatusCode::INTERNAL_SERVER_ERROR)
+                                    .body(Either::Left(Full::from(err)))
+                                    .unwrap(),
+                            );
+                        }
+                        _ => unreachable!(),
+                    }
+                } else if path == "/update-users-metadata" {
+                    if request.method() != Method::GET {
+                        let mut response = Response::builder();
+                        let headers = response.headers_mut().unwrap();
+                        headers.insert(ALLOW, GET);
+                        info!("405 https://{server_name}/api/user/admin/update-users-metadata");
+                        return Some(
+                            response
+                                .status(StatusCode::METHOD_NOT_ALLOWED)
+                                .body(Either::Right(Empty::new()))
+                                .unwrap(),
+                        );
+                    }
+                    match update_users_metadata(&snapshot(), true).await {
+                        Ok(Some(output)) => {
+                            info!("200 https://{server_name}/api/user/admin/update-users-metadata");
+                            let mut response = Response::builder();
+                            let headers = response.headers_mut().unwrap();
+                            headers.insert(CONTENT_TYPE, TEXT);
+                            return Some(
+                                response
+                                    .status(StatusCode::OK)
+                                    .body(Either::Left(Full::from(output)))
+                                    .unwrap(),
+                            );
+                        }
+                        Err(err) => {
+                            info!("500 https://{server_name}/api/user/admin/update-users-metadata");
+                            return Some(
+                                Response::builder()
+                                    .status(StatusCode::INTERNAL_SERVER_ERROR)
+                                    .body(Either::Left(Full::from(err)))
+                                    .unwrap(),
+                            );
+                        }
+                        _ => unreachable!(),
+                    }
                 }
             } else if path == "/prices" {
                 if request.method() != Method::GET {

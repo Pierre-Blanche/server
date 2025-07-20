@@ -16,8 +16,8 @@ use serde_json::json;
 use std::collections::{BTreeMap, BTreeSet};
 use std::str::from_utf8;
 use tiered_server::norm::{normalize_first_name, normalize_last_name};
+#[cfg(test)]
 use tokio::io::AsyncWriteExt;
-use tracing::warn;
 
 #[derive(Deserialize, Serialize)]
 pub struct Member {
@@ -142,7 +142,7 @@ pub async fn licensees(structure_id: u32, season: u16) -> Option<Vec<Member>> {
         .json::<GraphqlResponse>()
         .await
         .map_err(|err| {
-            warn!("{err:?}");
+            tracing::warn!("{err:?}");
             err
         })
         .ok()?
@@ -225,7 +225,7 @@ async fn users_response_by_dob(dob: u32) -> Option<Response> {
         .execute(request)
         .await
         .map_err(|err| {
-            warn!("{err:?}");
+            tracing::warn!("{err:?}");
             err
         })
         .ok()
@@ -258,7 +258,7 @@ async fn users_response_by_ids(ids: &[&str]) -> Option<Response> {
         .execute(request)
         .await
         .map_err(|err| {
-            warn!("{err:?}");
+            tracing::warn!("{err:?}");
             err
         })
         .ok()
@@ -291,7 +291,7 @@ async fn users_response_by_license_numbers(license_numbers: &[u32]) -> Option<Re
         .execute(request)
         .await
         .map_err(|err| {
-            warn!("{err:?}");
+            tracing::warn!("{err:?}");
             err
         })
         .ok()
@@ -438,7 +438,7 @@ async fn users_response_to_members(response: Response, season: u16) -> Option<Ve
         .json::<GraphqlResponse>()
         .await
         .map_err(|err| {
-            warn!("{err:?}");
+            tracing::warn!("{err:?}");
             err
         })
         .ok()?
@@ -491,7 +491,7 @@ async fn users_response_by_structure(structure_id: u32) -> Option<Response> {
         .execute(request)
         .await
         .map_err(|err| {
-            warn!("{err:?}");
+            tracing::warn!("{err:?}");
             err
         })
         .ok()

@@ -2,7 +2,7 @@ use crate::http_client::json_client;
 use pinboard::Pinboard;
 use serde::Deserialize;
 use std::sync::LazyLock;
-use tracing::{info, warn};
+use tracing::warn;
 
 pub(crate) const USERAGENT_VALIDITY_SECONDS: u32 = 250_000; // ~3days
 

@@ -6,8 +6,8 @@ use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::BTreeMap;
+#[cfg(test)]
 use tokio::io::AsyncWriteExt;
-use tracing::warn;
 
 #[derive(Deserialize)]
 pub(crate) struct License {
@@ -130,7 +130,7 @@ pub(crate) async fn user_licenses(ids: &[&str], season: u16) -> Option<BTreeMap<
         .json::<GraphqlResponse>()
         .await
         .map_err(|err| {
-            warn!("{err:?}");
+            tracing::warn!("{err:?}");
             err
         })
         .ok()?

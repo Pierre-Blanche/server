@@ -97,6 +97,7 @@ pub async fn update_prices() -> Option<()> {
     Some(())
 }
 
+#[allow(dead_code)]
 pub enum Order {
     License(
         LicenseType,

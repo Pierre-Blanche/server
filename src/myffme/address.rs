@@ -6,8 +6,8 @@ use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::BTreeMap;
+#[cfg(test)]
 use tokio::io::AsyncWriteExt;
-use tracing::warn;
 
 #[derive(Deserialize, Serialize, Default)]
 pub(crate) struct Address {
@@ -25,6 +25,7 @@ pub(crate) struct Address {
     pub city: Option<String>,
 }
 
+#[allow(dead_code)]
 pub(crate) async fn user_address(id: &str) -> Option<Address> {
     user_addresses([id].as_slice())
         .await
@@ -94,7 +95,7 @@ pub(crate) async fn user_addresses(ids: &[&str]) -> Option<BTreeMap<String, Addr
         .json::<GraphqlResponse>()
         .await
         .map_err(|err| {
-            warn!("{err:?}");
+            tracing::warn!("{err:?}");
             err
         })
         .ok()?
@@ -189,7 +190,7 @@ pub async fn update_address(
             .json::<GraphqlResponse>()
             .await
             .map_err(|err| {
-                warn!("{err:?}");
+                tracing::warn!("{err:?}");
                 err
             })
             .ok()?

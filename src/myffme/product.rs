@@ -6,8 +6,8 @@ use reqwest::header::{HeaderValue, AUTHORIZATION, ORIGIN, REFERER};
 use reqwest::Url;
 use serde::Deserialize;
 use serde_json::json;
+#[cfg(test)]
 use tokio::io::AsyncWriteExt;
-use tracing::warn;
 
 #[derive(Deserialize)]
 pub(crate) struct Product {
@@ -77,7 +77,7 @@ pub(crate) async fn products() -> Option<Vec<Product>> {
         .json::<GraphqlResponse>()
         .await
         .map_err(|err| {
-            warn!("{err:?}");
+            tracing::warn!("{err:?}");
             err
         })
         .ok()?

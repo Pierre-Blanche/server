@@ -6,8 +6,8 @@ use reqwest::Url;
 use serde::Deserialize;
 use serde_json::json;
 use std::collections::BTreeMap;
+#[cfg(test)]
 use tokio::io::AsyncWriteExt;
-use tracing::warn;
 
 pub(crate) async fn user_health_questionnaires(
     ids: &[&str],
@@ -76,7 +76,7 @@ pub(crate) async fn user_health_questionnaires(
         .json::<GraphqlResponse>()
         .await
         .map_err(|err| {
-            warn!("{err:?}");
+            tracing::warn!("{err:?}");
             err
         })
         .ok()?

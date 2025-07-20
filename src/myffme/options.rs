@@ -5,8 +5,8 @@ use reqwest::header::{HeaderValue, AUTHORIZATION, ORIGIN, REFERER};
 use reqwest::Url;
 use serde::Deserialize;
 use serde_json::json;
+#[cfg(test)]
 use tokio::io::AsyncWriteExt;
-use tracing::warn;
 
 #[derive(Deserialize)]
 pub(crate) struct InsuranceLevelOption {
@@ -83,7 +83,7 @@ pub(crate) async fn options() -> Option<(Vec<InsuranceLevelOption>, Vec<Insuranc
         .json::<GraphqlResponse>()
         .await
         .map_err(|err| {
-            warn!("{err:?}");
+            tracing::warn!("{err:?}");
             err
         })
         .ok()?
