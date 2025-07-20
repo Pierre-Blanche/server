@@ -1,12 +1,11 @@
 use crate::category::Category;
 use crate::myffme::email::update_email;
-use crate::myffme::license::LicenseFees;
-use crate::myffme::{add_missing_users, update_users_metadata};
+use crate::myffme::LicenseFees;
+use crate::myffme::{add_missing_users, update_users_metadata, LicenseType, Metadata};
 use crate::order::{
     BaseLicensePrice, EquipmentRental, InsuranceLevel, InsuranceOption, Keyed, Priced,
 };
 use crate::season::{current_season, is_during_discount_period};
-use crate::user::{LicenseType, Metadata};
 use http_body_util::{Either, Empty, Full};
 use hyper::body::{Bytes, Incoming};
 use hyper::header::{ALLOW, CONTENT_TYPE};

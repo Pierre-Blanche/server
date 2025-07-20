@@ -1,7 +1,5 @@
 use crate::http_client::json_client;
-use crate::myffme::license::License;
-use crate::myffme::{ADMIN, MYFFME_AUTHORIZATION, X_HASURA_ROLE};
-use crate::user::Structure;
+use crate::myffme::{License, Structure, ADMIN, MYFFME_AUTHORIZATION, X_HASURA_ROLE};
 use reqwest::header::{HeaderValue, AUTHORIZATION, ORIGIN, REFERER};
 use reqwest::Url;
 use serde::Deserialize;

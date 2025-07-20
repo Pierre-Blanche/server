@@ -1,31 +1,6 @@
-use crate::http_client::json_client;
-use crate::myffme::{ADMIN, MYFFME_AUTHORIZATION, X_HASURA_ROLE};
-use crate::user::LicenseType;
-use reqwest::header::{HeaderValue, AUTHORIZATION, ORIGIN, REFERER};
-use reqwest::Url;
-use serde::{Deserialize, Serialize};
-use serde_json::json;
-use std::collections::BTreeMap;
-#[cfg(test)]
-use tokio::io::AsyncWriteExt;
-
-#[derive(Deserialize)]
-pub(crate) struct License {
-    pub user_id: Option<String>,
-    pub season: u16,
-    // #[serde(deserialize_with = "deserialize_license_number")]
-    // pub license_number: u32,
-    pub structure_id: u32,
-    #[serde(rename = "product_id", deserialize_with = "deserialize_license_type")]
-    pub license_type: Option<LicenseType>,
-}
-
-#[derive(Serialize, Deserialize, Default)]
-pub(crate) struct LicenseFees {
-    pub federal_fee_in_cents: u16,
-    pub regional_fee_in_cents: u16,
-    pub department_fee_in_cents: u16,
-}
+use crate::myffme::LicenseType;
+use crate::order::{InsuranceLevel, InsuranceOption};
+use serde::Deserialize;
 
 impl TryFrom<&str> for LicenseType {
     type Error = String;
@@ -53,6 +28,47 @@ impl TryFrom<&str> for LicenseType {
     }
 }
 
+impl TryFrom<&str> for InsuranceLevel {
+    type Error = String;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "rc" | "Rc" | "RC" | "8e1b2635-a76a-40a4-a278-2cd6768d03c0" => Ok(InsuranceLevel::RC),
+            "base" | "Base" | "4061064e-4d0a-4c49-9c66-109960a0437a" => Ok(InsuranceLevel::Base),
+            "base_plus" | "BasePlus" | "a3a2d318-c8a5-410b-ac9d-1f07c1d69bdc" => {
+                Ok(InsuranceLevel::BasePlus)
+            }
+            "base_plus_plus" | "BasePlusPlus" | "902fb734-a182-419a-af61-008b8bff3a4a" => {
+                Ok(InsuranceLevel::BasePlusPlus)
+            }
+            other => Err(format!("unknown insurance level: {other}")),
+        }
+    }
+}
+
+impl TryFrom<&str> for InsuranceOption {
+    type Error = String;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "vtt" | "MountainBike" | "mountain_bike" | "5e6eb7ec-7dc6-445b-ab50-9b45cb202f1e" => {
+                Ok(InsuranceOption::MountainBike)
+            }
+            "ski_piste" | "Ski" | "ski" | "92e7eebe-71cd-4258-b178-141587374b81" => {
+                Ok(InsuranceOption::Ski)
+            }
+            "slackline_highline"
+            | "SlacklineAndHighline"
+            | "slackline_and_highline"
+            | "dae0654d-977c-46c5-8f48-63de2d127efd" => Ok(InsuranceOption::SlacklineAndHighline),
+            "trail" | "TrialRunning" | "trial_running" | "d9c13113-70eb-4e04-a265-aba8f8ea7e8b" => {
+                Ok(InsuranceOption::TrailRunning)
+            }
+            other => Err(format!("unknown insurance option: {other}")),
+        }
+    }
+}
+
 pub(crate) fn deserialize_license_type<'de, D>(
     deserializer: D,
 ) -> Result<Option<LicenseType>, D::Error>
@@ -66,103 +82,28 @@ where
     }
 }
 
-pub(crate) async fn user_licenses(ids: &[&str], season: u16) -> Option<BTreeMap<String, License>> {
-    let url = Url::parse("https://back-prod.core.myffme.fr/v1/graphql").unwrap();
-    let client = json_client();
-    let request = client
-        .post(url.as_str())
-        .header(ORIGIN, HeaderValue::from_static("https://www.myffme.fr"))
-        .header(REFERER, HeaderValue::from_static("https://www.myffme.fr/"))
-        .header(X_HASURA_ROLE, ADMIN)
-        .header(
-            AUTHORIZATION,
-            MYFFME_AUTHORIZATION
-                .get_ref()
-                .map(|it| it.bearer_token.clone())?,
-        )
-        .json(&json!({
-            "operationName": "getLicensesByUserIds",
-            "query": GRAPHQL_GET_LICENSES_BY_USER_IDS,
-            "variables": {
-                "ids": ids,
-                "season": season,
-            }
-        }))
-        .build()
-        .ok()?;
-    let response = client.execute(request).await.ok()?;
-    #[derive(Deserialize)]
-    struct LicenseList {
-        list: Vec<License>,
+pub(crate) fn deserialize_insurance_level<'de, D>(
+    deserializer: D,
+) -> Result<Option<InsuranceLevel>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let result = <&str>::deserialize(deserializer);
+    match result {
+        Ok(str) => Ok(str.try_into().ok()),
+        Err(_err) => Ok(None),
     }
-    #[derive(Deserialize)]
-    struct GraphqlResponse {
-        data: LicenseList,
-    }
-    #[cfg(test)]
-    let licenses = {
-        println!("licenses");
-        println!("POST {}", url.as_str());
-        println!("{}", response.status());
-        let text = response.text().await.ok()?;
-        let file_name = format!(".licenses.json");
-        tokio::fs::OpenOptions::new()
-            .write(true)
-            .truncate(true)
-            .create(true)
-            .open(&file_name)
-            .await
-            .ok()?
-            .write_all(text.as_bytes())
-            .await
-            .unwrap();
-        serde_json::from_str::<GraphqlResponse>(&text)
-            .map_err(|e| {
-                eprintln!("{e:?}");
-                e
-            })
-            .ok()?
-            .data
-            .list
-    };
-    #[cfg(not(test))]
-    let licenses = response
-        .json::<GraphqlResponse>()
-        .await
-        .map_err(|err| {
-            tracing::warn!("{err:?}");
-            err
-        })
-        .ok()?
-        .data
-        .list;
-    Some(
-        licenses
-            .into_iter()
-            .map(|mut license| {
-                let id = license.user_id.take().unwrap();
-                (id, license)
-            })
-            .collect(),
-    )
 }
 
-const GRAPHQL_GET_LICENSES_BY_USER_IDS: &str = "\
-    query getLicensesByUserIds(
-        $ids: [uuid!]!
-        $season: Int!
-    ) {
-        list: licence(
-            where: { user_id: { _in: $ids }, season_id: { _lte: $season } }
-            order_by: [ { user_id: asc }, { season_id: desc_nulls_last } ]
-            distinct_on: user_id
-        ) {
-            product_id
-            non_practicing
-            structure_id
-            status
-            user_id
-            season: season_id
-        }
-    }\
-";
+pub(crate) fn deserialize_insurance_option<'de, D>(
+    deserializer: D,
+) -> Result<Option<InsuranceOption>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let result = <&str>::deserialize(deserializer);
+    match result {
+        Ok(str) => Ok(str.try_into().ok()),
+        Err(_err) => Ok(None),
+    }
+}

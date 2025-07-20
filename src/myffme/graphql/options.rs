@@ -1,5 +1,7 @@
 use crate::http_client::json_client;
-use crate::myffme::{ADMIN, MYFFME_AUTHORIZATION, X_HASURA_ROLE};
+use crate::myffme::{
+    InsuranceLevelOption, InsuranceOptionOption, ADMIN, MYFFME_AUTHORIZATION, X_HASURA_ROLE,
+};
 use crate::order::{InsuranceLevel, InsuranceOption};
 use reqwest::header::{HeaderValue, AUTHORIZATION, ORIGIN, REFERER};
 use reqwest::Url;
@@ -7,20 +9,6 @@ use serde::Deserialize;
 use serde_json::json;
 #[cfg(test)]
 use tokio::io::AsyncWriteExt;
-
-#[derive(Deserialize)]
-pub(crate) struct InsuranceLevelOption {
-    pub id: String,
-    #[serde(deserialize_with = "deserialize_insurance_level")]
-    pub level: Option<InsuranceLevel>,
-}
-
-#[derive(Deserialize)]
-pub(crate) struct InsuranceOptionOption {
-    pub id: String,
-    #[serde(deserialize_with = "deserialize_insurance_option")]
-    pub option: Option<InsuranceOption>,
-}
 
 pub(crate) async fn options() -> Option<(Vec<InsuranceLevelOption>, Vec<InsuranceOptionOption>)> {
     let url = Url::parse("https://back-prod.core.myffme.fr/v1/graphql").unwrap();
@@ -89,71 +77,6 @@ pub(crate) async fn options() -> Option<(Vec<InsuranceLevelOption>, Vec<Insuranc
         .ok()?
         .data;
     Some((options.levels, options.options))
-}
-
-impl TryFrom<&str> for InsuranceLevel {
-    type Error = String;
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value {
-            "rc" | "Rc" | "RC" | "8e1b2635-a76a-40a4-a278-2cd6768d03c0" => Ok(InsuranceLevel::RC),
-            "base" | "Base" | "4061064e-4d0a-4c49-9c66-109960a0437a" => Ok(InsuranceLevel::Base),
-            "base_plus" | "BasePlus" | "a3a2d318-c8a5-410b-ac9d-1f07c1d69bdc" => {
-                Ok(InsuranceLevel::BasePlus)
-            }
-            "base_plus_plus" | "BasePlusPlus" | "902fb734-a182-419a-af61-008b8bff3a4a" => {
-                Ok(InsuranceLevel::BasePlusPlus)
-            }
-            other => Err(format!("unknown insurance level: {other}")),
-        }
-    }
-}
-
-impl TryFrom<&str> for InsuranceOption {
-    type Error = String;
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value {
-            "vtt" | "MountainBike" | "mountain_bike" | "5e6eb7ec-7dc6-445b-ab50-9b45cb202f1e" => {
-                Ok(InsuranceOption::MountainBike)
-            }
-            "ski_piste" | "Ski" | "ski" | "92e7eebe-71cd-4258-b178-141587374b81" => {
-                Ok(InsuranceOption::Ski)
-            }
-            "slackline_highline"
-            | "SlacklineAndHighline"
-            | "slackline_and_highline"
-            | "dae0654d-977c-46c5-8f48-63de2d127efd" => Ok(InsuranceOption::SlacklineAndHighline),
-            "trail" | "TrialRunning" | "trial_running" | "d9c13113-70eb-4e04-a265-aba8f8ea7e8b" => {
-                Ok(InsuranceOption::TrailRunning)
-            }
-            other => Err(format!("unknown insurance option: {other}")),
-        }
-    }
-}
-
-fn deserialize_insurance_level<'de, D>(deserializer: D) -> Result<Option<InsuranceLevel>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let result = <&str>::deserialize(deserializer);
-    match result {
-        Ok(str) => Ok(str.try_into().ok()),
-        Err(_err) => Ok(None),
-    }
-}
-
-fn deserialize_insurance_option<'de, D>(
-    deserializer: D,
-) -> Result<Option<InsuranceOption>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let result = <&str>::deserialize(deserializer);
-    match result {
-        Ok(str) => Ok(str.try_into().ok()),
-        Err(_err) => Ok(None),
-    }
 }
 
 // OptionType {

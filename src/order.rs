@@ -1,6 +1,5 @@
-use crate::myffme::license::LicenseFees;
-use crate::myffme::price::prices;
-use crate::user::LicenseType;
+use crate::myffme::prices::prices;
+use crate::myffme::{LicenseFees, LicenseType};
 use serde::Serialize;
 use std::fmt::{Display, Formatter};
 use tiered_server::store::{snapshot, Snapshot};

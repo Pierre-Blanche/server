@@ -1,12 +1,12 @@
 use crate::http_client::json_client;
-use crate::myffme::license::LicenseFees;
-use crate::myffme::options::options;
-use crate::myffme::product::products;
-use crate::myffme::structure::{structure_hierarchy_by_id, StructureHierarchy};
-use crate::myffme::{ADMIN, MYFFME_AUTHORIZATION, STRUCTURE_ID, X_HASURA_ROLE};
+use crate::myffme::graphql::options::options;
+use crate::myffme::graphql::product::products;
+use crate::myffme::graphql::structure::{structure_hierarchy_by_id, StructureHierarchy};
+use crate::myffme::{
+    LicenseFees, LicenseType, ADMIN, MYFFME_AUTHORIZATION, STRUCTURE_ID, X_HASURA_ROLE,
+};
 use crate::order::{InsuranceLevel, InsuranceOption};
 use crate::season::current_season;
-use crate::user::LicenseType;
 use reqwest::header::{HeaderValue, AUTHORIZATION, ORIGIN, REFERER};
 use reqwest::Url;
 use serde::Deserialize;

@@ -1,13 +1,11 @@
-use pierre_blanche_server::address::cities_by_zip_code;
-use pierre_blanche_server::myffme::address::update_address;
-use pierre_blanche_server::myffme::member::member_by_license_number;
-use pierre_blanche_server::myffme::update_myffme_bearer_token;
+#![allow(unused_imports, dead_code)]
+
+use crate::address::cities_by_zip_code;
+use crate::myffme::graphql::address::update_address;
+use crate::myffme::graphql::member::member_by_license_number;
+use crate::myffme::update_myffme_bearer_token;
 use tiered_server::norm::normalize_city;
 
-#[tokio::main]
-async fn main() {}
-
-#[allow(dead_code)]
 async fn update_address_for_user_by_license_number(
     license_number: u32,
     city_name: &str,
@@ -39,9 +37,9 @@ async fn update_address_for_user_by_license_number(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pierre_blanche_server::address::{alternate_city_names, city_name_by_insee, City};
-    use pierre_blanche_server::myffme::member::members_by_structure;
-    use pierre_blanche_server::user::Metadata;
+    use crate::address::{alternate_city_names, city_name_by_insee, City};
+    use crate::myffme::graphql::member::members_by_structure;
+    use crate::myffme::Metadata;
     use std::collections::BTreeMap;
 
     #[tokio::test]
@@ -277,5 +275,6 @@ mod tests {
             }
         }
         println!("{} users", members.len());
+        println!("{count} modifications");
     }
 }

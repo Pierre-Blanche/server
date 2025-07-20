@@ -1,32 +1,26 @@
 use crate::http_client::json_client;
-use crate::myffme::address::{user_addresses, Address};
-use crate::myffme::document::Document;
-use crate::myffme::health_questionnaire::user_health_questionnaires;
-use crate::myffme::license::{user_licenses, License};
-use crate::myffme::medical_certificate::user_medical_certificates;
-use crate::myffme::structure::{structure_licenses, structures_by_ids};
-use crate::myffme::{ADMIN, MYFFME_AUTHORIZATION, X_HASURA_ROLE};
+use crate::myffme::address::Address;
+use crate::myffme::graphql::address::user_addresses;
+use crate::myffme::graphql::document::Document;
+use crate::myffme::graphql::health_questionnaire::user_health_questionnaires;
+use crate::myffme::graphql::license::user_licenses;
+use crate::myffme::graphql::medical_certificate::user_medical_certificates;
+use crate::myffme::graphql::structure::{structure_licenses, structures_by_ids};
+use crate::myffme::LicenseType::NonPracticing;
+use crate::myffme::{
+    Gender, License, MedicalCertificateStatus, Member, Metadata, Structure, ADMIN,
+    MYFFME_AUTHORIZATION, X_HASURA_ROLE,
+};
 use crate::season::current_season;
-use crate::user::LicenseType::NonPracticing;
-use crate::user::{Gender, MedicalCertificateStatus, Metadata, Structure};
 use reqwest::header::{HeaderValue, AUTHORIZATION, ORIGIN, REFERER};
 use reqwest::{Response, Url};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::json;
 use std::collections::{BTreeMap, BTreeSet};
 use std::str::from_utf8;
 use tiered_server::norm::{normalize_first_name, normalize_last_name};
 #[cfg(test)]
 use tokio::io::AsyncWriteExt;
-
-#[derive(Deserialize, Serialize)]
-pub struct Member {
-    pub first_name: String,
-    pub last_name: String,
-    pub email: String,
-    pub dob: u32,
-    pub metadata: Metadata,
-}
 
 pub async fn members_by_ids(ids: &[&str], season: Option<u16>) -> Option<Vec<Member>> {
     let season = season.unwrap_or_else(|| current_season(None));

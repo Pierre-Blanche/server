@@ -1,5 +1,5 @@
 use crate::http_client::json_client;
-use crate::myffme::document::Document;
+use crate::myffme::graphql::document::Document;
 use crate::myffme::{ADMIN, MYFFME_AUTHORIZATION, X_HASURA_ROLE};
 use reqwest::header::{HeaderValue, AUTHORIZATION, ORIGIN, REFERER};
 use reqwest::Url;

@@ -1,5 +1,5 @@
 use crate::http_client::html_client;
-use crate::user::{Competition, CompetitionResult};
+use crate::myffme::{Competition, CompetitionResult};
 use reqwest::Url;
 use scraper::{Html, Selector};
 use tracing::warn;
