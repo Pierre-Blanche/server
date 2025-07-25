@@ -13,7 +13,7 @@ pub async fn update_loop() {
         .unwrap()
         .as_secs() as u32;
     update_chrome_version(timestamp).await;
-    let _ = update_myffme_bearer_token(timestamp).await;
+    let token = update_myffme_bearer_token(timestamp, None).await;
     let _ = update_prices().await;
     thread::spawn(move || {
         tokio::runtime::Builder::new_current_thread()
@@ -22,6 +22,7 @@ pub async fn update_loop() {
             .build()
             .unwrap()
             .block_on(async {
+                let mut refresh_token = token.map(|it| it.refresh_token);
                 loop {
                     let timestamp = SystemTime::now()
                         .duration_since(SystemTime::UNIX_EPOCH)
@@ -39,10 +40,14 @@ pub async fn update_loop() {
                         .get_ref()
                         .map(|it| it.timestamp)
                         .unwrap_or(0);
-                    if timestamp > token_timestamp + MYFFME_AUTHORIZATION_VALIDITY_SECONDS
-                        && update_myffme_bearer_token(timestamp).await.is_none()
-                    {
-                        success = false;
+                    if timestamp > token_timestamp + MYFFME_AUTHORIZATION_VALIDITY_SECONDS {
+                        let token = update_myffme_bearer_token(timestamp, refresh_token).await;
+                        if let Some(token) = token {
+                            refresh_token = Some(token.refresh_token);
+                        } else {
+                            refresh_token = None;
+                            success = false;
+                        }
                     }
                     sleep(Duration::from_secs(if success {
                         (15_000 + fastrand::i16(-1500..1500)) as u64

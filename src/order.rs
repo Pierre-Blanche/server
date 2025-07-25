@@ -1,4 +1,4 @@
-use crate::myffme::prices::prices;
+use crate::myffme::price::prices;
 use crate::myffme::{LicenseFees, LicenseType};
 use serde::Serialize;
 use std::fmt::{Display, Formatter};

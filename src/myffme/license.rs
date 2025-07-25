@@ -1,4 +1,4 @@
-use crate::myffme::LicenseType;
+use crate::myffme::{InsuranceLevelOption, InsuranceOptionOption, LicenseType};
 use crate::order::{InsuranceLevel, InsuranceOption};
 use serde::Deserialize;
 
@@ -69,17 +69,15 @@ impl TryFrom<&str> for InsuranceOption {
     }
 }
 
-pub(crate) fn deserialize_license_type<'de, D>(
-    deserializer: D,
-) -> Result<Option<LicenseType>, D::Error>
+pub(crate) fn deserialize_license_type<'de, D>(deserializer: D) -> Result<LicenseType, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
-    let result = <&str>::deserialize(deserializer);
-    match result {
-        Ok(str) => Ok(str.try_into().ok()),
-        Err(_err) => Ok(None),
-    }
+    String::deserialize(deserializer).and_then(|it| {
+        it.as_str()
+            .try_into()
+            .map_err(|err| serde::de::Error::custom(err))
+    })
 }
 
 pub(crate) fn deserialize_insurance_level<'de, D>(
@@ -105,5 +103,38 @@ where
     match result {
         Ok(str) => Ok(str.try_into().ok()),
         Err(_err) => Ok(None),
+    }
+}
+
+pub(crate) enum ProductOption {
+    InsuranceLevel(InsuranceLevelOption),
+    InsuranceOption(InsuranceOptionOption),
+}
+
+#[derive(Deserialize)]
+struct InsuranceLevelOrOption<'a> {
+    id: String,
+    #[serde(borrow)]
+    slug: &'a str,
+}
+
+pub(crate) fn deserialize_product_option<'de, D>(deserializer: D) -> Result<ProductOption, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let InsuranceLevelOrOption { id, slug: result } =
+        <InsuranceLevelOrOption>::deserialize(deserializer)?;
+    if let Ok(insurance_level) = InsuranceLevel::try_from(result) {
+        Ok(ProductOption::InsuranceLevel(InsuranceLevelOption {
+            id,
+            level: Some(insurance_level),
+        }))
+    } else if let Ok(insurance_option) = InsuranceOption::try_from(result) {
+        Ok(ProductOption::InsuranceOption(InsuranceOptionOption {
+            id,
+            option: Some(insurance_option),
+        }))
+    } else {
+        Err(serde::de::Error::custom("unknown option"))
     }
 }

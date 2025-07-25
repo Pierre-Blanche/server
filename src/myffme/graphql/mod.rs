@@ -280,7 +280,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_list() {
-        assert!(update_myffme_bearer_token(0).await.is_some());
+        assert!(update_myffme_bearer_token(0, None).await.is_some());
         let t0 = SystemTime::now();
         let all_members = members_by_structure(*STRUCTURE_ID, None).await.unwrap();
         let elapsed = t0.elapsed().unwrap();

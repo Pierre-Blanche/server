@@ -311,7 +311,7 @@ fn members(
             let license_type = if it.non_practicing.unwrap_or(false) {
                 Some(NonPracticing)
             } else {
-                license.and_then(|it| it.license_type)
+                license.map(|it| it.license_type)
             };
             let health_questionnaire = health_questionnaires.remove(&it.id).and_then(|it| {
                 if let Some(season) = latest_license_season {
@@ -635,7 +635,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_member_by_license_number() {
-        assert!(update_myffme_bearer_token(0).await.is_some());
+        assert!(update_myffme_bearer_token(0, None).await.is_some());
         let t0 = SystemTime::now();
         let result = member_by_license_number(154316).await.unwrap();
         let elapsed = t0.elapsed().unwrap();
@@ -646,7 +646,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_licensee_by_last_name_and_dob() {
-        assert!(update_myffme_bearer_token(0).await.is_some());
+        assert!(update_myffme_bearer_token(0, None).await.is_some());
         let t0 = SystemTime::now();
         let results = member_by_name_and_dob("Jerome", "DAVID", 19770522)
             .await
@@ -662,7 +662,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_member_by_ids() {
-        assert!(update_myffme_bearer_token(0).await.is_some());
+        assert!(update_myffme_bearer_token(0, None).await.is_some());
         let t0 = SystemTime::now();
         let results = members_by_ids(
             [

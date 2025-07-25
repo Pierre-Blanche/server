@@ -2,7 +2,6 @@ use crate::http_client::json_client;
 use crate::myffme::{
     InsuranceLevelOption, InsuranceOptionOption, ADMIN, MYFFME_AUTHORIZATION, X_HASURA_ROLE,
 };
-use crate::order::{InsuranceLevel, InsuranceOption};
 use reqwest::header::{HeaderValue, AUTHORIZATION, ORIGIN, REFERER};
 use reqwest::Url;
 use serde::Deserialize;
@@ -112,11 +111,12 @@ const GRAPHQL_GET_OPTIONS: &str = "\
 mod tests {
     use super::*;
     use crate::myffme::update_myffme_bearer_token;
+    use crate::order::{InsuranceLevel, InsuranceOption};
     use std::time::SystemTime;
 
     #[tokio::test]
     async fn test_options() {
-        assert!(update_myffme_bearer_token(0).await.is_some());
+        assert!(update_myffme_bearer_token(0, None).await.is_some());
         let t0 = SystemTime::now();
         let (insurance_levels, insurance_options) = options().await.unwrap();
         let elapsed = t0.elapsed().unwrap();

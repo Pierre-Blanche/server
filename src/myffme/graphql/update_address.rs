@@ -4,6 +4,7 @@ use crate::address::cities_by_zip_code;
 use crate::myffme::graphql::address::update_address;
 use crate::myffme::graphql::member::member_by_license_number;
 use crate::myffme::update_myffme_bearer_token;
+use std::ops::Deref;
 use tiered_server::norm::normalize_city;
 
 async fn update_address_for_user_by_license_number(
@@ -15,9 +16,10 @@ async fn update_address_for_user_by_license_number(
 ) -> Option<()> {
     println!(
         "{}",
-        update_myffme_bearer_token(0)
+        update_myffme_bearer_token(0, None)
             .await
             .expect("failed to get bearer token")
+            .deref()
     );
     let user = member_by_license_number(license_number)
         .await
@@ -46,9 +48,10 @@ mod tests {
     async fn test_token() {
         println!(
             "{}",
-            update_myffme_bearer_token(0)
+            update_myffme_bearer_token(0, None)
                 .await
                 .expect("failed to get bearer token")
+                .deref()
         );
     }
 
@@ -76,9 +79,10 @@ mod tests {
     async fn test_fix_city_names() {
         println!(
             "{}",
-            update_myffme_bearer_token(0)
+            update_myffme_bearer_token(0, None)
                 .await
                 .expect("failed to get bearer token")
+                .deref()
         );
         let members = members_by_structure(10, None)
             .await
@@ -136,9 +140,10 @@ mod tests {
     async fn test_add_missing_insee() {
         println!(
             "{}",
-            update_myffme_bearer_token(0)
+            update_myffme_bearer_token(0, None)
                 .await
                 .expect("failed to get bearer token")
+                .deref()
         );
         let members = members_by_structure(10, None)
             .await
@@ -203,9 +208,10 @@ mod tests {
     async fn test_count_insee_mismatch() {
         println!(
             "{}",
-            update_myffme_bearer_token(0)
+            update_myffme_bearer_token(0, None)
                 .await
                 .expect("failed to get bearer token")
+                .deref()
         );
         let members = members_by_structure(10, None)
             .await

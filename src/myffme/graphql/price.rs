@@ -223,7 +223,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_prices() {
-        assert!(update_myffme_bearer_token(0).await.is_some());
+        assert!(update_myffme_bearer_token(0, None).await.is_some());
         let t0 = SystemTime::now();
         let (license_prices, insurance_level_prices, insurance_option_prices) =
             prices(None).await.unwrap();

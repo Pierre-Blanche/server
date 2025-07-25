@@ -1,5 +1,4 @@
 use crate::http_client::json_client;
-use crate::myffme::license::deserialize_license_type;
 use crate::myffme::{LicenseType, ADMIN, MYFFME_AUTHORIZATION, X_HASURA_ROLE};
 use reqwest::header::{HeaderValue, AUTHORIZATION, ORIGIN, REFERER};
 use reqwest::Url;
@@ -102,6 +101,19 @@ const GRAPHQL_GET_PRODUCTS: &str = "\
     }\
 ";
 
+pub(crate) fn deserialize_license_type<'de, D>(
+    deserializer: D,
+) -> Result<Option<LicenseType>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let result = <&str>::deserialize(deserializer);
+    match result {
+        Ok(str) => Ok(str.try_into().ok()),
+        Err(_err) => Ok(None),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -110,7 +122,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_products() {
-        assert!(update_myffme_bearer_token(0).await.is_some());
+        assert!(update_myffme_bearer_token(0, None).await.is_some());
         let t0 = SystemTime::now();
         let products = products().await.unwrap();
         let elapsed = t0.elapsed().unwrap();

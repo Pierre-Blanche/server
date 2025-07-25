@@ -82,7 +82,7 @@ mod tests {
             ))
             .init();
         let snapshot = snapshot();
-        update_myffme_bearer_token(0)
+        update_myffme_bearer_token(0, None)
             .await
             .expect("failed to get bearer token");
         add_missing_users(&snapshot, None, false).await.unwrap();
@@ -103,7 +103,7 @@ mod tests {
             ))
             .init();
         let snapshot = snapshot();
-        update_myffme_bearer_token(0)
+        update_myffme_bearer_token(0, None)
             .await
             .expect("failed to get bearer token");
         update_users_metadata(&snapshot, false).await.unwrap();
