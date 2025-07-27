@@ -236,7 +236,7 @@ pub struct BaseLicensePrice;
 
 pub struct MembershipFee(LicenseType);
 
-#[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Serialize)]
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Serialize)]
 pub enum InsuranceLevel {
     RC,
     Base,
@@ -250,7 +250,7 @@ impl Default for InsuranceLevel {
     }
 }
 
-#[derive(Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Serialize)]
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Copy, Clone, Serialize)]
 pub enum InsuranceOption {
     MountainBike,
     Ski,

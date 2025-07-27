@@ -130,7 +130,7 @@ mod tests {
             assert!(
                 insurance_levels
                     .iter()
-                    .find(|it| it.level.as_ref() == Some(&insurance_level))
+                    .find(|it| it.level == insurance_level)
                     .is_some(),
                 "{}",
                 level_name
@@ -145,7 +145,7 @@ mod tests {
             assert!(
                 insurance_options
                     .iter()
-                    .find(|it| it.option.as_ref() == Some(&insurance_option))
+                    .find(|it| it.option == insurance_option)
                     .is_some(),
                 "{}",
                 option_name

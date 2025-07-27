@@ -21,7 +21,7 @@ use tiered_server::env::{secret_value, ConfigurationKey};
 use tiered_server::store::Snapshot;
 use tracing::warn;
 
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Member {
     pub first_name: String,
     pub last_name: String,
@@ -30,7 +30,7 @@ pub struct Member {
     pub metadata: Metadata,
 }
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct Metadata {
     pub myffme_user_id: Option<String>,
     pub license_number: Option<u32>,
@@ -50,7 +50,7 @@ pub struct Metadata {
     pub competition_results: Option<Vec<CompetitionResult>>,
 }
 
-#[derive(Deserialize, Serialize, Eq, PartialEq, Ord, PartialOrd, Copy, Clone)]
+#[derive(Debug, Deserialize, Serialize, Eq, PartialEq, Ord, PartialOrd, Copy, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum Gender {
     Female,
@@ -69,7 +69,7 @@ pub enum LicenseType {
     NonPracticing,
 }
 
-#[derive(Deserialize, Serialize, Eq, PartialEq, Ord, PartialOrd, Copy, Clone)]
+#[derive(Debug, Deserialize, Serialize, Eq, PartialEq, Ord, PartialOrd, Copy, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum MedicalCertificateStatus {
     Recreational,
@@ -78,7 +78,7 @@ pub enum MedicalCertificateStatus {
     WaitingForDocument,
 }
 
-#[derive(Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Structure {
     pub id: u32,
     pub name: String,
@@ -87,13 +87,13 @@ pub struct Structure {
     pub department: Option<String>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Competition {
     pub season: u16,
     pub name: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct CompetitionResult {
     pub rank: u16,
     pub category_name: String,
@@ -111,25 +111,25 @@ pub(crate) struct License {
     pub license_type: LicenseType,
 }
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct LicenseFees {
     pub federal_fee_in_cents: u16,
     pub regional_fee_in_cents: u16,
     pub department_fee_in_cents: u16,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub(crate) struct InsuranceLevelOption {
     pub id: String,
     #[serde(deserialize_with = "deserialize_insurance_level")]
-    pub level: Option<InsuranceLevel>,
+    pub level: InsuranceLevel,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub(crate) struct InsuranceOptionOption {
     pub id: String,
     #[serde(deserialize_with = "deserialize_insurance_option")]
-    pub option: Option<InsuranceOption>,
+    pub option: InsuranceOption,
 }
 
 pub(crate) struct Authorization {

@@ -1,5 +1,6 @@
 use crate::myffme::{InsuranceLevelOption, InsuranceOptionOption, LicenseType};
 use crate::order::{InsuranceLevel, InsuranceOption};
+use serde::de::Error;
 use serde::Deserialize;
 
 impl TryFrom<&str> for LicenseType {
@@ -69,41 +70,118 @@ impl TryFrom<&str> for InsuranceOption {
     }
 }
 
+struct LicenseTypeVisitor;
+
+impl<'de> serde::de::Visitor<'de> for LicenseTypeVisitor {
+    type Value = LicenseType;
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("a string representing a license type")
+    }
+    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+    where
+        E: Error,
+    {
+        LicenseType::try_from(v).map_err(|err| E::custom(err))
+    }
+}
+
 pub(crate) fn deserialize_license_type<'de, D>(deserializer: D) -> Result<LicenseType, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
-    String::deserialize(deserializer).and_then(|it| {
-        it.as_str()
-            .try_into()
-            .map_err(|err| serde::de::Error::custom(err))
-    })
+    deserializer.deserialize_str(LicenseTypeVisitor)
+}
+
+struct InsuranceLevelVisitor;
+
+impl<'de> serde::de::Visitor<'de> for InsuranceLevelVisitor {
+    type Value = InsuranceLevel;
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("a string representing an insurance level")
+    }
+    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+    where
+        E: Error,
+    {
+        InsuranceLevel::try_from(v).map_err(|err| E::custom(err))
+    }
 }
 
 pub(crate) fn deserialize_insurance_level<'de, D>(
     deserializer: D,
-) -> Result<Option<InsuranceLevel>, D::Error>
+) -> Result<InsuranceLevel, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
-    let result = <&str>::deserialize(deserializer);
-    match result {
-        Ok(str) => Ok(str.try_into().ok()),
-        Err(_err) => Ok(None),
+    deserializer.deserialize_str(InsuranceLevelVisitor)
+}
+
+struct InsuranceOptionVisitor;
+
+impl<'de> serde::de::Visitor<'de> for InsuranceOptionVisitor {
+    type Value = InsuranceOption;
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("a string representing an insurance option")
+    }
+    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+    where
+        E: Error,
+    {
+        InsuranceOption::try_from(v).map_err(|err| E::custom(err))
     }
 }
 
 pub(crate) fn deserialize_insurance_option<'de, D>(
     deserializer: D,
-) -> Result<Option<InsuranceOption>, D::Error>
+) -> Result<InsuranceOption, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
-    let result = <&str>::deserialize(deserializer);
-    match result {
-        Ok(str) => Ok(str.try_into().ok()),
-        Err(_err) => Ok(None),
+    deserializer.deserialize_str(InsuranceOptionVisitor)
+}
+
+enum InsuranceLevelOrOption {
+    InsuranceLevel(InsuranceLevel),
+    InsuranceOption(InsuranceOption),
+}
+
+struct InsuranceLevelOrOptionVisitor;
+
+impl<'de> serde::de::Visitor<'de> for InsuranceLevelOrOptionVisitor {
+    type Value = InsuranceLevelOrOption;
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("a string representing an insurance level or option")
     }
+    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+    where
+        E: Error,
+    {
+        InsuranceLevel::try_from(v)
+            .map(|it| InsuranceLevelOrOption::InsuranceLevel(it))
+            .or_else(|_| {
+                InsuranceOption::try_from(v).map(|it| InsuranceLevelOrOption::InsuranceOption(it))
+            })
+            .map_err(|err| E::custom(err))
+    }
+}
+
+fn deserialize_insurance_level_or_option<'de, D>(
+    deserializer: D,
+) -> Result<InsuranceLevelOrOption, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    deserializer.deserialize_str(InsuranceLevelOrOptionVisitor)
+}
+
+#[derive(Deserialize)]
+struct InsuranceLevelOrOptionOption {
+    id: String,
+    #[serde(
+        rename = "slug",
+        deserialize_with = "deserialize_insurance_level_or_option"
+    )]
+    level_or_option: InsuranceLevelOrOption,
 }
 
 pub(crate) enum ProductOption {
@@ -111,30 +189,20 @@ pub(crate) enum ProductOption {
     InsuranceOption(InsuranceOptionOption),
 }
 
-#[derive(Deserialize)]
-struct InsuranceLevelOrOption<'a> {
-    id: String,
-    #[serde(borrow)]
-    slug: &'a str,
-}
-
 pub(crate) fn deserialize_product_option<'de, D>(deserializer: D) -> Result<ProductOption, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
-    let InsuranceLevelOrOption { id, slug: result } =
-        <InsuranceLevelOrOption>::deserialize(deserializer)?;
-    if let Ok(insurance_level) = InsuranceLevel::try_from(result) {
-        Ok(ProductOption::InsuranceLevel(InsuranceLevelOption {
-            id,
-            level: Some(insurance_level),
-        }))
-    } else if let Ok(insurance_option) = InsuranceOption::try_from(result) {
-        Ok(ProductOption::InsuranceOption(InsuranceOptionOption {
-            id,
-            option: Some(insurance_option),
-        }))
-    } else {
-        Err(serde::de::Error::custom("unknown option"))
-    }
+    let InsuranceLevelOrOptionOption {
+        id,
+        level_or_option,
+    } = <InsuranceLevelOrOptionOption>::deserialize(deserializer)?;
+    Ok(match level_or_option {
+        InsuranceLevelOrOption::InsuranceLevel(level) => {
+            ProductOption::InsuranceLevel(InsuranceLevelOption { id, level })
+        }
+        InsuranceLevelOrOption::InsuranceOption(option) => {
+            ProductOption::InsuranceOption(InsuranceOptionOption { id, option })
+        }
+    })
 }

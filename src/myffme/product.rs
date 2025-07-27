@@ -84,23 +84,23 @@ pub(crate) async fn products() -> Option<(
                 match serde_json::from_value::<ProductOptionWrapper>(value)
                     .map(|it| it.product_option)
                 {
-                    Ok(ProductOption::InsuranceLevel(it)) => {
+                    Ok(ProductOption::InsuranceLevel(level)) => {
                         if !insurance_level_options
                             .iter()
-                            .any(|it: &InsuranceLevelOption| it.id == it.id)
+                            .any(|it: &InsuranceLevelOption| level.id == it.id)
                         {
-                            insurance_level_options.push(it);
+                            insurance_level_options.push(level);
                         }
                     }
-                    Ok(ProductOption::InsuranceOption(it)) => {
+                    Ok(ProductOption::InsuranceOption(option)) => {
                         if !insurance_option_options
                             .iter()
-                            .any(|it: &InsuranceOptionOption| it.id == it.id)
+                            .any(|it: &InsuranceOptionOption| option.id == it.id)
                         {
-                            insurance_option_options.push(it);
+                            insurance_option_options.push(option);
                         }
                     }
-                    Err(_) => {}
+                    Err(_err) => {}
                 }
             }
             products.push(product);
@@ -173,6 +173,8 @@ mod tests {
                 license_name
             );
         }
+        println!("{}", insurance_levels.len());
+        println!("{insurance_levels:?}");
         for (insurance_level, level_name) in [
             (InsuranceLevel::RC, "RC"),
             (InsuranceLevel::Base, "Base"),
@@ -182,12 +184,14 @@ mod tests {
             assert!(
                 insurance_levels
                     .iter()
-                    .find(|it| it.level.as_ref() == Some(&insurance_level))
+                    .find(|it| it.level == insurance_level)
                     .is_some(),
                 "{}",
                 level_name
             );
         }
+        println!("{}", insurance_options.len());
+        println!("{insurance_options:?}");
         for (insurance_option, option_name) in [
             (InsuranceOption::MountainBike, "Mountain Bike"),
             (InsuranceOption::Ski, "Ski"),
@@ -197,24 +201,11 @@ mod tests {
             assert!(
                 insurance_options
                     .iter()
-                    .find(|it| it.option.as_ref() == Some(&insurance_option))
+                    .find(|it| it.option == insurance_option)
                     .is_some(),
                 "{}",
                 option_name
             );
         }
-    }
-
-    #[test]
-    fn test() {
-        let result = serde_json::from_value::<ProductWithOptions>(serde_json::json!({
-            "id": "123",
-            "label": "lbl",
-            "slug": "licence_jeune",
-            "active": true,
-            "optionTypes": []
-        }))
-        .unwrap();
-        println!("{:?}", result.license_type);
     }
 }

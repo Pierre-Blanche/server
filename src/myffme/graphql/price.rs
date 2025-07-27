@@ -32,11 +32,11 @@ pub(crate) async fn prices(
     let (levels, options) = options().await?;
     let mut levels = levels
         .into_iter()
-        .filter_map(|it| it.level.map(|level| (it.id, level)))
+        .map(|it| (it.id, it.level))
         .collect::<BTreeMap<_, _>>();
     let mut options = options
         .into_iter()
-        .filter_map(|it| it.option.map(|option| (it.id, option)))
+        .map(|it| (it.id, it.option))
         .collect::<BTreeMap<_, _>>();
     let product_ids = products.iter().map(|it| it.id.as_str()).collect::<Vec<_>>();
     let level_ids = levels.keys().collect::<Vec<_>>();
@@ -136,20 +136,21 @@ pub(crate) async fn prices(
         })
         .ok()?
         .data;
-    let mut license_prices = BTreeMap::new();
+    let mut license_prices: BTreeMap<LicenseType, LicenseFees> = BTreeMap::new();
     for price in product_list.into_iter() {
         if let Some(license_type) = products
             .iter()
             .find(|it| it.id == price.product_id)
             .and_then(|it| it.license_type)
         {
-            let fees: &mut LicenseFees = license_prices.entry(license_type).or_default();
-            if price.structure_id == department_structure_id {
-                fees.department_fee_in_cents = price.price_in_cents;
-            } else if price.structure_id == region_structure_id {
-                fees.regional_fee_in_cents = price.price_in_cents;
-            } else if price.structure_id == national_structure_id {
-                fees.federal_fee_in_cents = price.price_in_cents;
+            if let Some(fees) = license_prices.get_mut(&license_type) {
+                if price.structure_id == department_structure_id {
+                    fees.department_fee_in_cents = price.price_in_cents;
+                } else if price.structure_id == region_structure_id {
+                    fees.regional_fee_in_cents = price.price_in_cents;
+                } else if price.structure_id == national_structure_id {
+                    fees.federal_fee_in_cents = price.price_in_cents;
+                }
             }
         }
     }
