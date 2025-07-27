@@ -1,6 +1,8 @@
 use crate::http_client::json_client;
 use crate::myffme::license::deserialize_license_type;
-use crate::myffme::{LicenseType, MedicalCertificateStatus, MYFFME_AUTHORIZATION, STRUCTURE_ID};
+use crate::myffme::{
+    Gender, LicenseType, MedicalCertificateStatus, MYFFME_AUTHORIZATION, STRUCTURE_ID,
+};
 use crate::season::current_season;
 use hyper::header::{HeaderValue, AUTHORIZATION, ORIGIN, REFERER};
 use reqwest::Url;
@@ -80,6 +82,40 @@ where
     deserializer.deserialize_str(DateVisitor)
 }
 
+impl TryFrom<&str> for Gender {
+    type Error = String;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "male" => Ok(Gender::Male),
+            "female" => Ok(Gender::Female),
+            other => Err(format!("unknown gender: {other}")),
+        }
+    }
+}
+
+struct GenderVisitor;
+
+impl<'de> serde::de::Visitor<'de> for GenderVisitor {
+    type Value = Gender;
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("a string representing a gender")
+    }
+    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+    where
+        E: Error,
+    {
+        Gender::try_from(v).map_err(|err| E::custom(err))
+    }
+}
+
+pub(crate) fn deserialize_gender<'de, D>(deserializer: D) -> Result<Gender, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    deserializer.deserialize_str(GenderVisitor)
+}
+
 #[derive(Debug, Deserialize)]
 struct Licensee {
     #[serde(alias = "userFirstname")]
@@ -132,7 +168,7 @@ async fn licensees() -> Option<Vec<Licensee>> {
         let response = client.execute(request).await.ok()?;
         #[cfg(test)]
         let list = {
-            println!("license_prices");
+            println!("licenses");
             println!("GET {}", url.as_str());
             println!("{}", response.status());
             let text = response.text().await.ok()?;
@@ -173,6 +209,159 @@ async fn licensees() -> Option<Vec<Licensee>> {
     Some(licensees)
 }
 
+async fn user_data(user_id: &str) -> Option<UserData> {
+    let url = Url::parse(&format!(
+        "https://api.core.myffme.fr/api/user_datas/{user_id}"
+    ))
+    .unwrap();
+    let client = json_client();
+    let request = client
+        .get(url.as_str())
+        .header(ORIGIN, HeaderValue::from_static("https://app.myffme.fr"))
+        .header(REFERER, HeaderValue::from_static("https://app.myffme.fr/"))
+        .header(
+            AUTHORIZATION,
+            MYFFME_AUTHORIZATION
+                .get_ref()
+                .map(|it| it.bearer_token.clone())?,
+        )
+        .build()
+        .ok()?;
+    let response = client.execute(request).await.ok()?;
+    #[cfg(test)]
+    let data = {
+        println!("user_data");
+        println!("GET {}", url.as_str());
+        println!("{}", response.status());
+        let text = response.text().await.ok()?;
+        let file_name = format!(".user_data_{user_id}.json");
+        tokio::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .create(true)
+            .open(&file_name)
+            .await
+            .ok()?
+            .write_all(text.as_bytes())
+            .await
+            .unwrap();
+        serde_json::from_str::<UserData>(&text)
+            .map_err(|e| {
+                eprintln!("{e:?}");
+                e
+            })
+            .ok()?
+    };
+    #[cfg(not(test))]
+    let data = response
+        .json::<UserData>()
+        .await
+        .map_err(|err| {
+            tracing::warn!("{err:?}");
+            err
+        })
+        .ok()?;
+    Some(data)
+}
+
+async fn emergency_contact(path: &str) -> Option<EmergencyContact> {
+    let url = Url::parse(&format!("https://api.core.myffme.fr{path}")).unwrap();
+    let client = json_client();
+    let request = client
+        .get(url.as_str())
+        .header(ORIGIN, HeaderValue::from_static("https://app.myffme.fr"))
+        .header(REFERER, HeaderValue::from_static("https://app.myffme.fr/"))
+        .header(
+            AUTHORIZATION,
+            MYFFME_AUTHORIZATION
+                .get_ref()
+                .map(|it| it.bearer_token.clone())?,
+        )
+        .build()
+        .ok()?;
+    let response = client.execute(request).await.ok()?;
+    #[cfg(test)]
+    let data = {
+        println!("emergency_contact");
+        println!("GET {}", url.as_str());
+        println!("{}", response.status());
+        let text = response.text().await.ok()?;
+        let id = path.split('/').last().unwrap();
+        let file_name = format!(".emergency_contact_{id}.json");
+        tokio::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .create(true)
+            .open(&file_name)
+            .await
+            .ok()?
+            .write_all(text.as_bytes())
+            .await
+            .unwrap();
+        serde_json::from_str::<EmergencyContact>(&text)
+            .map_err(|e| {
+                eprintln!("{e:?}");
+                e
+            })
+            .ok()?
+    };
+    #[cfg(not(test))]
+    let data = response
+        .json::<EmergencyContact>()
+        .await
+        .map_err(|err| {
+            tracing::warn!("{err:?}");
+            err
+        })
+        .ok()?;
+    Some(data)
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct UserData {
+    // #[serde(rename = "firstname")]
+    // first_name: String,
+    // #[serde(rename = "lastname")]
+    // last_name: String,
+    #[serde(rename = "birthname")]
+    birth_name: String,
+    username: String,
+    // #[serde(alias = "birthdate", deserialize_with = "deserialize_date")]
+    // dob: u32,
+    #[serde(rename = "civility", deserialize_with = "deserialize_gender")]
+    gender: Gender,
+    // #[serde(rename = "licenceNumber")]
+    // license_number: u32,
+    #[serde(rename = "mobile")]
+    phone_number: Option<String>,
+    #[serde(rename = "phone")]
+    alt_phone_number: Option<String>,
+    #[serde(rename = "email")]
+    email: Option<String>,
+    #[serde(rename = "secondaryEmail")]
+    alternate_email: Option<String>,
+    #[serde(rename = "userContacts")]
+    emergency_contact_paths: Vec<String>,
+    #[serde(rename = "licences")] // ordered by season (latest last)
+    license_paths: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct EmergencyContact {
+    #[serde(alias = "firstname")]
+    first_name: String,
+    #[serde(alias = "lastname")]
+    last_name: String,
+    #[serde(rename = "phone")]
+    phone_number: Option<String>,
+    #[serde(rename = "email")]
+    email: Option<String>,
+    #[serde(rename = "parentage")]
+    relationship: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -180,7 +369,7 @@ mod tests {
     use std::time::SystemTime;
 
     #[tokio::test]
-    async fn test_user_ids() {
+    async fn test_licensees() {
         assert!(update_myffme_bearer_token(0, None).await.is_some());
         let t0 = SystemTime::now();
         let licensees = licensees().await.unwrap();
@@ -200,5 +389,33 @@ mod tests {
             .unwrap();
         assert_eq!(19750826, result.dob);
         assert_eq!("GRAS", result.last_name);
+    }
+
+    #[tokio::test]
+    async fn test_user_data() {
+        assert!(update_myffme_bearer_token(0, None).await.is_some());
+        let t0 = SystemTime::now();
+        let user_data = user_data("6692903b-8032-43ea-8cd9-530f14bf5324")
+            .await
+            .unwrap();
+        println!("{user_data:?}");
+        let elapsed = t0.elapsed().unwrap();
+        println!("{elapsed:?}");
+        assert_eq!("DAVID", user_data.birth_name);
+        assert_eq!(Gender::Male, user_data.gender);
+        assert!(user_data.license_paths.len() > 10);
+        assert!(!user_data.emergency_contact_paths.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_emergency_contact() {
+        assert!(update_myffme_bearer_token(0, None).await.is_some());
+        let t0 = SystemTime::now();
+        let contact = emergency_contact("/api/user_contacts/50802").await.unwrap();
+        println!("{contact:?}");
+        let elapsed = t0.elapsed().unwrap();
+        println!("{elapsed:?}");
+        assert_eq!("DAVID", contact.last_name);
+        assert_eq!("mother", contact.relationship.unwrap());
     }
 }
