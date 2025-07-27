@@ -2,6 +2,7 @@ pub mod address;
 pub mod email;
 mod graphql;
 pub mod license;
+mod licensee;
 pub mod price;
 mod product;
 mod structure;

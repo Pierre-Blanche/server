@@ -116,12 +116,12 @@ async fn product_prices(
         println!("GET {}", url.as_str());
         println!("{}", response.status());
         let text = response.text().await.ok()?;
-        let file_name = format!(".license_prices.json");
+        let file_name = ".license_prices.json";
         tokio::fs::OpenOptions::new()
             .write(true)
             .truncate(true)
             .create(true)
-            .open(&file_name)
+            .open(file_name)
             .await
             .ok()?
             .write_all(text.as_bytes())
@@ -202,12 +202,12 @@ async fn insurance_prices(
         println!("GET {}", url.as_str());
         println!("{}", response.status());
         let text = response.text().await.ok()?;
-        let file_name = format!(".insurance_prices.json");
+        let file_name = ".insurance_prices.json";
         tokio::fs::OpenOptions::new()
             .write(true)
             .truncate(true)
             .create(true)
-            .open(&file_name)
+            .open(file_name)
             .await
             .ok()?
             .write_all(text.as_bytes())

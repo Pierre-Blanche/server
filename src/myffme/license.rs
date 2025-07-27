@@ -157,10 +157,8 @@ impl<'de> serde::de::Visitor<'de> for InsuranceLevelOrOptionVisitor {
         E: Error,
     {
         InsuranceLevel::try_from(v)
-            .map(|it| InsuranceLevelOrOption::InsuranceLevel(it))
-            .or_else(|_| {
-                InsuranceOption::try_from(v).map(|it| InsuranceLevelOrOption::InsuranceOption(it))
-            })
+            .map(InsuranceLevelOrOption::InsuranceLevel)
+            .or_else(|_| InsuranceOption::try_from(v).map(InsuranceLevelOrOption::InsuranceOption))
             .map_err(|err| E::custom(err))
     }
 }

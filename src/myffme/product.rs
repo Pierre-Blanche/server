@@ -42,12 +42,12 @@ pub(crate) async fn products() -> Option<Vec<Product>> {
         println!("GET {}", url.as_str());
         println!("{}", response.status());
         let text = response.text().await.ok()?;
-        let file_name = format!(".products.json");
+        let file_name = ".products.json";
         tokio::fs::OpenOptions::new()
             .write(true)
             .truncate(true)
             .create(true)
-            .open(&file_name)
+            .open(file_name)
             .await
             .ok()?
             .write_all(text.as_bytes())
