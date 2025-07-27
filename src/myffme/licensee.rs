@@ -1,5 +1,5 @@
 use crate::http_client::json_client;
-use crate::myffme::license::deserialize_license_type;
+use crate::myffme::license::{deserialize_license_type, deserialize_product_option, ProductOption};
 use crate::myffme::{
     Gender, LicenseType, MedicalCertificateStatus, MYFFME_AUTHORIZATION, STRUCTURE_ID,
 };
@@ -317,6 +317,59 @@ async fn emergency_contact(path: &str) -> Option<EmergencyContact> {
     Some(data)
 }
 
+async fn license(path: &str) -> Option<License> {
+    let url = Url::parse(&format!("https://api.core.myffme.fr{path}")).unwrap();
+    let client = json_client();
+    let request = client
+        .get(url.as_str())
+        .header(ORIGIN, HeaderValue::from_static("https://app.myffme.fr"))
+        .header(REFERER, HeaderValue::from_static("https://app.myffme.fr/"))
+        .header(
+            AUTHORIZATION,
+            MYFFME_AUTHORIZATION
+                .get_ref()
+                .map(|it| it.bearer_token.clone())?,
+        )
+        .build()
+        .ok()?;
+    let response = client.execute(request).await.ok()?;
+    #[cfg(test)]
+    let data = {
+        println!("license");
+        println!("GET {}", url.as_str());
+        println!("{}", response.status());
+        let text = response.text().await.ok()?;
+        let id = path.split('/').last().unwrap();
+        let file_name = format!(".license_{id}.json");
+        tokio::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .create(true)
+            .open(&file_name)
+            .await
+            .ok()?
+            .write_all(text.as_bytes())
+            .await
+            .unwrap();
+        serde_json::from_str::<License>(&text)
+            .map_err(|e| {
+                eprintln!("{e:?}");
+                e
+            })
+            .ok()?
+    };
+    #[cfg(not(test))]
+    let data = response
+        .json::<License>()
+        .await
+        .map_err(|err| {
+            tracing::warn!("{err:?}");
+            err
+        })
+        .ok()?;
+    Some(data)
+}
+
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]
 struct UserData {
@@ -362,10 +415,45 @@ struct EmergencyContact {
     relationship: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct StructureWithId {
+    #[serde(rename = "id")]
+    structure: u32,
+}
+
+#[derive(Debug, Deserialize)]
+struct SeasonWithId {
+    #[serde(rename = "id")]
+    season: u16,
+}
+
+#[derive(Debug, Deserialize)]
+struct ProductWithId {
+    #[serde(rename = "slug", deserialize_with = "deserialize_license_type")]
+    product: LicenseType,
+}
+
+#[derive(Debug, Deserialize)]
+struct OptionWrapper {
+    #[serde(rename = "option", deserialize_with = "deserialize_product_option")]
+    product_option: ProductOption,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct License {
+    season: SeasonWithId,
+    structure: StructureWithId,
+    product: ProductWithId,
+    #[serde(rename = "licenceOptions")]
+    options: Vec<OptionWrapper>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::myffme::update_myffme_bearer_token;
+    use crate::order::InsuranceLevel;
     use std::time::SystemTime;
 
     #[tokio::test]
@@ -417,5 +505,27 @@ mod tests {
         println!("{elapsed:?}");
         assert_eq!("DAVID", contact.last_name);
         assert_eq!("mother", contact.relationship.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_license() {
+        assert!(update_myffme_bearer_token(0, None).await.is_some());
+        let t0 = SystemTime::now();
+        let license = license("/api/licences/0191f60f-f135-7ec4-a800-d3afbebc7ea7")
+            .await
+            .unwrap();
+        println!("{license:?}");
+        let elapsed = t0.elapsed().unwrap();
+        println!("{elapsed:?}");
+        assert_eq!(2025, license.season.season);
+        assert_eq!(LicenseType::Adult, license.product.product);
+        assert_eq!(1, license.options.len());
+        assert_eq!(
+            InsuranceLevel::Base,
+            match &license.options.first().unwrap().product_option {
+                ProductOption::InsuranceLevel(it) => it.level,
+                _ => panic!("unexpected option"),
+            }
+        );
     }
 }

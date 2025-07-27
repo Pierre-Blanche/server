@@ -182,6 +182,7 @@ struct InsuranceLevelOrOptionOption {
     level_or_option: InsuranceLevelOrOption,
 }
 
+#[derive(Debug)]
 pub(crate) enum ProductOption {
     InsuranceLevel(InsuranceLevelOption),
     InsuranceOption(InsuranceOptionOption),
