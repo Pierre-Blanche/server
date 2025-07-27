@@ -111,7 +111,7 @@ pub(crate) struct License {
     pub license_type: LicenseType,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub(crate) struct LicenseFees {
     pub federal_fee_in_cents: u16,
     pub regional_fee_in_cents: u16,

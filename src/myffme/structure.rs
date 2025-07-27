@@ -6,6 +6,7 @@ use serde::Deserialize;
 #[cfg(test)]
 use tokio::io::AsyncWriteExt;
 
+#[allow(dead_code)]
 #[derive(Deserialize)]
 pub(crate) struct StructureHierarchy {
     #[allow(dead_code)]
@@ -18,6 +19,7 @@ pub(crate) struct StructureHierarchy {
     pub national_structure_id: u32,
 }
 
+#[allow(dead_code)]
 pub async fn structure_hierarchy_by_id(id: u32) -> Option<StructureHierarchy> {
     let url = Url::parse(&format!("https://api.core.myffme.fr/api/structures/{id}")).unwrap();
     let client = json_client();
