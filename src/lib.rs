@@ -86,7 +86,7 @@ mod tests {
         update_myffme_bearer_token(0, None)
             .await
             .expect("failed to get bearer token");
-        add_missing_users(&snapshot, None, false).await.unwrap();
+        add_missing_users(&snapshot, false).await.unwrap();
     }
 
     #[tokio::test]

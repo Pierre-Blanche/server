@@ -131,7 +131,7 @@ impl Extension for ApiExtension {
                                 .unwrap(),
                         );
                     }
-                    match add_missing_users(&snapshot(), None, true).await {
+                    match add_missing_users(&snapshot(), true).await {
                         Ok(Some(output)) => {
                             info!("200 https://{server_name}/api/user/admin/add-missing-users");
                             let mut response = Response::builder();

@@ -9,6 +9,7 @@ mod product;
 mod structure;
 
 use crate::http_client::json_client;
+use crate::myffme::licensee::{licensees, Licensee};
 use crate::order::{InsuranceLevel, InsuranceOption};
 use crate::user::Metadata;
 use license::{
@@ -18,11 +19,15 @@ use pinboard::Pinboard;
 use reqwest::header::{HeaderName, HeaderValue};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::collections::BTreeMap;
+use std::fmt::Write;
 use std::ops::Deref;
 use std::sync::LazyLock;
 use tiered_server::env::{secret_value, ConfigurationKey};
+use tiered_server::norm::{normalize_first_name, normalize_last_name};
 use tiered_server::store::Snapshot;
-use tracing::warn;
+use tiered_server::user::{Email, IdentificationMethod, User};
+use tracing::{info, warn};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Member {
@@ -231,11 +236,108 @@ pub async fn update_myffme_bearer_token(
 }
 
 pub(crate) async fn add_missing_users(
-    _snapshot: &Snapshot,
-    _season: Option<u16>,
-    _log: bool,
+    snapshot: &Snapshot,
+    log: bool,
 ) -> Result<Option<String>, String> {
-    todo!()
+    let mut output = if log { Some(String::new()) } else { None };
+    let existing_users = snapshot
+        .list::<User>("acc/")
+        .map(|(_, it)| it)
+        .collect::<Vec<_>>();
+    info!("existing users: {}", existing_users.len());
+    if let Some(output) = output.as_mut() {
+        let _ = writeln!(output, "existing users: {}", existing_users.len());
+    }
+    let existing_users_metadata = existing_users
+        .iter()
+        .flat_map(|it| {
+            it.metadata
+                .as_ref()
+                .and_then(|value| Metadata::deserialize(value).ok())
+        })
+        .collect::<Vec<_>>();
+    let lookup = existing_users_metadata
+        .iter()
+        .filter_map(|it| it.myffme_user_id.as_ref().map(|id| (id, it)))
+        .collect::<BTreeMap<_, _>>();
+    let licensees = licensees().await.ok_or("failed to get licensees")?;
+    info!("licensees: {}", licensees.len());
+    for licensee in licensees {
+        let Licensee {
+            myffme_user_id,
+            license_number,
+            first_name,
+            last_name,
+            email,
+            dob,
+            ..
+        } = licensee;
+        if lookup.contains_key(&myffme_user_id) {
+            continue;
+        }
+        let metadata = Metadata {
+            myffme_user_id: Some(myffme_user_id),
+            license_number: Some(license_number),
+            ..Default::default()
+        };
+        let normalized_first_name = normalize_first_name(first_name.as_str());
+        let normalized_last_name = normalize_last_name(last_name.as_str());
+        let last = existing_users
+            .iter()
+            .filter(|&it| {
+                it.date_of_birth == dob
+                    && it.normalized_first_name == normalized_first_name
+                    && (it.normalized_last_name == normalized_last_name
+                        || it.email().unwrap_or_default() == email)
+            })
+            .enumerate()
+            .last();
+        if let Some((i, it)) = last {
+            if i == 0 {
+                // only one match, set myffme_user_id and license_number
+                let mut user = it.clone();
+                user.metadata = Some(
+                    serde_json::to_value(metadata)
+                        .map_err(|_| "failed to serialize metadata".to_string())?,
+                );
+                match Snapshot::set_and_return_before_update(&format!("acc/{}", user.id), &user)
+                    .await
+                {
+                    Some(_) => continue,
+                    None => return Err(format!("failed to assign licensee to user {}", user.id)),
+                }
+            } else {
+                // multiple matches, abort
+                return Err(format!("multiple users found for {first_name} {last_name}"));
+            }
+        }
+        // no match, create user
+        let id = User::new_id(0);
+        let key = format!("acc/{id}");
+        info!("adding {first_name} {last_name}");
+        if let Some(output) = output.as_mut() {
+            let _ = writeln!(output, "adding {first_name} {last_name}");
+        }
+        let identification = IdentificationMethod::Email(Email::from(email));
+        let user = User {
+            id,
+            identification: vec![identification],
+            last_name,
+            normalized_last_name,
+            first_name,
+            normalized_first_name,
+            date_of_birth: dob,
+            admin: false,
+            metadata: Some(
+                serde_json::to_value(metadata)
+                    .map_err(|_| "failed to serialize metadata".to_string())?,
+            ),
+        };
+        Snapshot::set_and_return_before_update(key.as_str(), &user)
+            .await
+            .ok_or("failed to add user".to_string())?;
+    }
+    Ok(output)
 }
 
 pub(crate) async fn update_users_metadata(

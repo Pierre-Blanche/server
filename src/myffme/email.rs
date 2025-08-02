@@ -58,7 +58,7 @@ pub(crate) async fn update_email(
     if success {
         Some(())
     } else {
-        tracing::warn!("Failed to update email");
+        tracing::warn!("failed to update email");
         None
     }
 }

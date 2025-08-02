@@ -120,24 +120,24 @@ where
 #[derive(Debug, Deserialize)]
 pub(crate) struct Licensee {
     #[serde(alias = "userFirstname")]
-    first_name: String,
+    pub(crate) first_name: String,
     #[serde(alias = "userLastname")]
-    last_name: String,
+    pub(crate) last_name: String,
     #[serde(alias = "userEmail")]
-    email: String,
+    pub(crate) email: String,
     #[serde(alias = "userBirthdate", deserialize_with = "deserialize_date")]
-    dob: u32,
+    pub(crate) dob: u32,
     #[serde(alias = "userId")]
-    user_id: String,
+    pub(crate) myffme_user_id: String,
     #[serde(alias = "userLicenceNumber")]
-    license_number: u32,
+    pub(crate) license_number: u32,
     #[serde(alias = "productSlug", deserialize_with = "deserialize_license_type")]
-    license_type: LicenseType,
+    pub(crate) license_type: LicenseType,
     #[serde(
         rename = "licenceStatus",
         deserialize_with = "deserialize_medical_certificate_status"
     )]
-    medical_certificate_status: MedicalCertificateStatus,
+    pub(crate) medical_certificate_status: MedicalCertificateStatus,
 }
 
 pub(crate) async fn licensees() -> Option<Vec<Licensee>> {
@@ -201,7 +201,7 @@ pub(crate) async fn licensees() -> Option<Vec<Licensee>> {
             })
             .ok()?;
         for it in list {
-            if ids.insert(it.user_id.clone()) {
+            if ids.insert(it.myffme_user_id.clone()) {
                 licensees.push(it);
             }
         }

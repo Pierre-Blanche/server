@@ -1,5 +1,12 @@
+use crate::address::City;
+use crate::http_client::json_client;
 use crate::myffme::licensee::{address, user_data};
+use crate::myffme::MYFFME_AUTHORIZATION;
+use hyper::header::{HeaderValue, AUTHORIZATION, ORIGIN, REFERER};
+use reqwest::Url;
 use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::json;
+use tokio::io::AsyncWriteExt;
 use tracing::warn;
 
 #[derive(Debug, Serialize, Default)]
@@ -94,11 +101,68 @@ pub(crate) async fn user_address(myffme_user_id: &str) -> Option<Address> {
         let mut iter = it.into_iter();
         let found = iter.next();
         if iter.next().is_some() {
-            warn!("More than one address found for user {}", myffme_user_id);
+            warn!("more than one address found for user {}", myffme_user_id);
         }
         found
     })?;
     address(&path).await
+}
+
+pub(crate) async fn update_address_city(
+    address_id: &str,
+    city: &str,
+    zip_code: &str,
+) -> Option<()> {
+    let url = Url::parse(&format!(
+        "https://api.core.myffme.fr/api/addresses/{address_id}"
+    ))
+    .unwrap();
+    let client = json_client();
+    let response = client
+        .patch(url.as_str())
+        .header(ORIGIN, HeaderValue::from_static("https://app.myffme.fr"))
+        .header(REFERER, HeaderValue::from_static("https://app.myffme.fr/"))
+        .header(
+            AUTHORIZATION,
+            MYFFME_AUTHORIZATION
+                .get_ref()
+                .map(|it| it.bearer_token.clone())?,
+        )
+        .json(&json!({
+            "city": city,
+            "zipcode": zip_code,
+        }))
+        .send()
+        .await
+        .ok()?;
+    #[cfg(test)]
+    let success = {
+        println!("address city");
+        println!("PATCH {}", url.as_str());
+        let success = response.status().is_success();
+        println!("{}", response.status());
+        let text = response.text().await.ok()?;
+        let file_name = format!(".update_address_city_{address_id}.json");
+        tokio::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .create(true)
+            .open(&file_name)
+            .await
+            .ok()?
+            .write_all(text.as_bytes())
+            .await
+            .unwrap();
+        success
+    };
+    #[cfg(not(test))]
+    let success = response.status().is_success();
+    if success {
+        Some(())
+    } else {
+        warn!("failed to update address city");
+        None
+    }
 }
 
 #[cfg(test)]
