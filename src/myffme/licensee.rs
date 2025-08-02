@@ -318,7 +318,7 @@ pub(crate) async fn emergency_contact(path: &str) -> Option<EmergencyContact> {
     Some(data)
 }
 
-async fn license(path: &str) -> Option<License> {
+pub(crate) async fn license(path: &str) -> Option<License> {
     let url = Url::parse(&format!("https://api.core.myffme.fr{path}")).unwrap();
     let client = json_client();
     let request = client
@@ -362,6 +362,59 @@ async fn license(path: &str) -> Option<License> {
     #[cfg(not(test))]
     let data = response
         .json::<License>()
+        .await
+        .map_err(|err| {
+            tracing::warn!("{err:?}");
+            err
+        })
+        .ok()?;
+    Some(data)
+}
+
+pub(crate) async fn address(path: &str) -> Option<Address> {
+    let url = Url::parse(&format!("https://api.core.myffme.fr{path}")).unwrap();
+    let client = json_client();
+    let request = client
+        .get(url.as_str())
+        .header(ORIGIN, HeaderValue::from_static("https://app.myffme.fr"))
+        .header(REFERER, HeaderValue::from_static("https://app.myffme.fr/"))
+        .header(
+            AUTHORIZATION,
+            MYFFME_AUTHORIZATION
+                .get_ref()
+                .map(|it| it.bearer_token.clone())?,
+        )
+        .build()
+        .ok()?;
+    let response = client.execute(request).await.ok()?;
+    #[cfg(test)]
+    let data = {
+        println!("address");
+        println!("GET {}", url.as_str());
+        println!("{}", response.status());
+        let text = response.text().await.ok()?;
+        let id = path.split('/').last().unwrap();
+        let file_name = format!(".address_{id}.json");
+        tokio::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .create(true)
+            .open(&file_name)
+            .await
+            .ok()?
+            .write_all(text.as_bytes())
+            .await
+            .unwrap();
+        serde_json::from_str::<Address>(&text)
+            .map_err(|e| {
+                eprintln!("{e:?}");
+                e
+            })
+            .ok()?
+    };
+    #[cfg(not(test))]
+    let data = response
+        .json::<Address>()
         .await
         .map_err(|err| {
             tracing::warn!("{err:?}");
@@ -540,5 +593,23 @@ mod tests {
                 _ => panic!("unexpected option"),
             }
         );
+    }
+
+    #[tokio::test]
+    async fn test_address() {
+        assert!(update_myffme_bearer_token(0, None).await.is_some());
+        let t0 = SystemTime::now();
+        let address = address("/api/addresses/01980e6c-5d7d-76ef-b036-5ec8358a2706")
+            .await
+            .unwrap();
+        println!("{address:?}");
+        let elapsed = t0.elapsed().unwrap();
+        println!("{elapsed:?}");
+        assert_eq!(
+            "01980e6c-5d7d-76ef-b036-5ec8358a2706",
+            address.id.unwrap_or_default()
+        );
+        assert_eq!("Fontenay-le-Comte", address.city.unwrap_or_default());
+        assert_eq!("85200", address.zip_code.unwrap_or_default());
     }
 }

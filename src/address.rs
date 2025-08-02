@@ -185,8 +185,7 @@ async fn address(insee: Option<&str>, text: &str) -> Option<Vec<Address>> {
                     Address {
                         user_id: None,
                         id: None,
-                        line1: Some(name),
-                        line2: None,
+                        address: Some(name),
                         insee,
                         zip_code: Some(zip_code),
                         city: Some(city),

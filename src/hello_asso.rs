@@ -163,7 +163,7 @@ pub async fn init_transaction(snapshot: &Snapshot, user: &User, order: &Order) -
                 "firstName": &user.first_name,
                 "lastName": &user.last_name,
                 "email": &user.email(),
-                "address": &address.line1,
+                "address": &address.address,
                 "city": &address.city,
                 "zipCode": &address.zip_code,
                 "country": "fra",

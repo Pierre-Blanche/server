@@ -39,10 +39,6 @@ async fn update_address_for_user_by_license_number(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::address::{alternate_city_names, city_name_by_insee, City};
-    use crate::myffme::graphql::member::members_by_structure;
-    use crate::myffme::Metadata;
-    use std::collections::BTreeMap;
 
     #[tokio::test]
     async fn test_token() {
@@ -75,6 +71,7 @@ mod tests {
         );
     }
 
+    /*
     #[tokio::test]
     async fn test_fix_city_names() {
         println!(
@@ -283,4 +280,5 @@ mod tests {
         println!("{} users", members.len());
         println!("{count} modifications");
     }
+    */
 }

@@ -210,10 +210,10 @@ pub(crate) async fn update_users_metadata(
             if let Some(ffme_user_id) = metadata.myffme_user_id.as_ref() {
                 if let Some(found) = members_metadata.remove(ffme_user_id) {
                     let mut changed = false;
-                    if metadata.insee != found.insee {
-                        metadata.insee = found.insee;
-                        changed = true;
-                    }
+                    // if metadata.insee != found.insee {
+                    //     metadata.insee = found.insee;
+                    //     changed = true;
+                    // }
                     // if metadata.zip_code != found.zip_code {
                     //     metadata.zip_code = found.zip_code;
                     //     changed = true;

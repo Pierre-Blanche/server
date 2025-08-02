@@ -1,5 +1,4 @@
 use crate::http_client::json_client;
-use crate::myffme::licensee::user_data;
 use crate::myffme::MYFFME_AUTHORIZATION;
 use hyper::header::{HeaderValue, AUTHORIZATION, ORIGIN, REFERER};
 use reqwest::Url;
@@ -8,12 +7,12 @@ use serde_json::json;
 use tokio::io::AsyncWriteExt;
 
 pub(crate) async fn update_email(
-    user_id: &str,
+    myffme_user_id: &str,
     email: &str,
     alt_email: Option<&str>,
 ) -> Option<()> {
     let url = Url::parse(&format!(
-        "https://api.core.myffme.fr/api/user_datas/{user_id}"
+        "https://api.core.myffme.fr/api/user_datas/{myffme_user_id}"
     ))
     .unwrap();
     let client = json_client();
@@ -41,7 +40,7 @@ pub(crate) async fn update_email(
         let success = response.status().is_success();
         println!("{}", response.status());
         let text = response.text().await.ok()?;
-        let file_name = format!(".update_email_{user_id}.json");
+        let file_name = format!(".update_email_{myffme_user_id}.json");
         tokio::fs::OpenOptions::new()
             .write(true)
             .truncate(true)

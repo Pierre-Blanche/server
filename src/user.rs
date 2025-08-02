@@ -7,9 +7,6 @@ pub struct Metadata {
     pub myffme_user_id: Option<String>,
     pub license_number: Option<u32>,
     pub gender: Option<Gender>,
-    pub insee: Option<String>,
-    pub city: Option<String>,
-    pub zip_code: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub license_type: Option<LicenseType>,
     #[serde(skip_serializing_if = "Option::is_none")]
