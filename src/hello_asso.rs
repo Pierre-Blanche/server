@@ -2,9 +2,9 @@
 
 use crate::http_client::json_client;
 use crate::myffme::address::{user_address, Address};
-use crate::myffme::Metadata;
 use crate::order::{Order, Priced};
 use crate::season::is_during_discount_period;
+use crate::user::Metadata;
 use hyper::header::{HeaderValue, AUTHORIZATION};
 use pinboard::Pinboard;
 use serde::Deserialize;

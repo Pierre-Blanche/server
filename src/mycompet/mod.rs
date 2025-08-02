@@ -1,8 +1,9 @@
 pub mod results;
 
 use crate::mycompet::results::competition_results;
-use crate::myffme::{MedicalCertificateStatus, Metadata};
+use crate::myffme::MedicalCertificateStatus;
 use crate::season::current_season;
+use crate::user::Metadata;
 use std::sync::Arc;
 use tiered_server::store::Snapshot;
 use tiered_server::user::User;

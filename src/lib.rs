@@ -2,6 +2,7 @@ pub mod address;
 pub mod api;
 mod category;
 mod chrome;
+mod emergency_contact;
 mod hello_asso;
 mod http_client;
 pub mod mycompet;

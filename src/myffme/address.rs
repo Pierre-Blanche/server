@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 pub(crate) struct Address {
     #[serde(skip_serializing)]
     pub user_id: Option<String>,
+    #[serde(skip_serializing)]
+    pub id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub line1: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

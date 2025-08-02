@@ -1,4 +1,5 @@
 use crate::http_client::json_client;
+use crate::myffme::address::Address;
 use crate::myffme::license::{deserialize_license_type, deserialize_product_option, ProductOption};
 use crate::myffme::{
     Gender, LicenseType, MedicalCertificateStatus, MYFFME_AUTHORIZATION, STRUCTURE_ID,
@@ -117,7 +118,7 @@ where
 }
 
 #[derive(Debug, Deserialize)]
-struct Licensee {
+pub(crate) struct Licensee {
     #[serde(alias = "userFirstname")]
     first_name: String,
     #[serde(alias = "userLastname")]
@@ -139,7 +140,7 @@ struct Licensee {
     medical_certificate_status: MedicalCertificateStatus,
 }
 
-async fn licensees() -> Option<Vec<Licensee>> {
+pub(crate) async fn licensees() -> Option<Vec<Licensee>> {
     let current_season = current_season(None);
     let mut licensees = Vec::new();
     let mut ids = BTreeSet::new();
@@ -209,7 +210,7 @@ async fn licensees() -> Option<Vec<Licensee>> {
     Some(licensees)
 }
 
-async fn user_data(user_id: &str) -> Option<UserData> {
+pub(crate) async fn user_data(user_id: &str) -> Option<UserData> {
     let url = Url::parse(&format!(
         "https://api.core.myffme.fr/api/user_datas/{user_id}"
     ))
@@ -264,7 +265,7 @@ async fn user_data(user_id: &str) -> Option<UserData> {
     Some(data)
 }
 
-async fn emergency_contact(path: &str) -> Option<EmergencyContact> {
+pub(crate) async fn emergency_contact(path: &str) -> Option<EmergencyContact> {
     let url = Url::parse(&format!("https://api.core.myffme.fr{path}")).unwrap();
     let client = json_client();
     let request = client
@@ -372,37 +373,44 @@ async fn license(path: &str) -> Option<License> {
 
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]
-struct UserData {
-    // #[serde(rename = "firstname")]
-    // first_name: String,
-    // #[serde(rename = "lastname")]
-    // last_name: String,
+pub(crate) struct UserData {
+    pub(crate) id: String,
+    #[serde(rename = "firstname")]
+    pub(crate) first_name: String,
+    #[serde(rename = "lastname")]
+    pub(crate) last_name: String,
     #[serde(rename = "birthname")]
-    birth_name: String,
-    username: String,
-    // #[serde(alias = "birthdate", deserialize_with = "deserialize_date")]
-    // dob: u32,
+    pub(crate) birth_name: Option<String>,
+    #[serde(rename = "birthdate", deserialize_with = "deserialize_date")]
+    pub(crate) dob: u32,
+    pub(crate) username: Option<String>,
+    #[serde(rename = "licenceNumber")]
+    pub(crate) license_number: u32,
+    #[serde(rename = "isLicensee")]
+    pub(crate) is_licensee: bool,
     #[serde(rename = "civility", deserialize_with = "deserialize_gender")]
-    gender: Gender,
+    pub(crate) gender: Gender,
     // #[serde(rename = "licenceNumber")]
     // license_number: u32,
     #[serde(rename = "mobile")]
-    phone_number: Option<String>,
+    pub(crate) phone_number: Option<String>,
     #[serde(rename = "phone")]
-    alt_phone_number: Option<String>,
+    pub(crate) alt_phone_number: Option<String>,
     #[serde(rename = "email")]
-    email: Option<String>,
+    pub(crate) email: Option<String>,
     #[serde(rename = "secondaryEmail")]
-    alternate_email: Option<String>,
+    pub(crate) alternate_email: Option<String>,
     #[serde(rename = "userContacts")]
-    emergency_contact_paths: Vec<String>,
+    pub(crate) emergency_contact_paths: Option<Vec<String>>,
     #[serde(rename = "licences")] // ordered by season (latest last)
-    license_paths: Vec<String>,
+    pub(crate) license_paths: Option<Vec<String>>,
+    #[serde(rename = "addresses")]
+    pub(crate) address_paths: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]
-struct EmergencyContact {
+pub(crate) struct EmergencyContact {
     #[serde(alias = "firstname")]
     first_name: String,
     #[serde(alias = "lastname")]
@@ -489,10 +497,15 @@ mod tests {
         println!("{user_data:?}");
         let elapsed = t0.elapsed().unwrap();
         println!("{elapsed:?}");
-        assert_eq!("DAVID", user_data.birth_name);
+        assert_eq!("DAVID", user_data.birth_name.unwrap_or_default());
         assert_eq!(Gender::Male, user_data.gender);
-        assert!(user_data.license_paths.len() > 10);
-        assert!(!user_data.emergency_contact_paths.is_empty());
+        assert!(user_data.license_paths.unwrap_or_default().len() > 10);
+        assert!(
+            !user_data
+                .emergency_contact_paths
+                .unwrap_or_default()
+                .is_empty()
+        );
     }
 
     #[tokio::test]

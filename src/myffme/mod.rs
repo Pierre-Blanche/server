@@ -3,12 +3,14 @@ pub mod email;
 mod graphql;
 pub mod license;
 mod licensee;
+mod me;
 pub mod price;
 mod product;
 mod structure;
 
 use crate::http_client::json_client;
 use crate::order::{InsuranceLevel, InsuranceOption};
+use crate::user::Metadata;
 use license::{
     deserialize_insurance_level, deserialize_insurance_option, deserialize_license_type,
 };
@@ -29,26 +31,6 @@ pub struct Member {
     pub email: String,
     pub dob: u32,
     pub metadata: Metadata,
-}
-
-#[derive(Debug, Serialize, Deserialize, Default)]
-pub struct Metadata {
-    pub myffme_user_id: Option<String>,
-    pub license_number: Option<u32>,
-    pub gender: Option<Gender>,
-    pub insee: Option<String>,
-    pub city: Option<String>,
-    pub zip_code: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub license_type: Option<LicenseType>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub medical_certificate_status: Option<MedicalCertificateStatus>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub latest_license_season: Option<u16>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub latest_structure: Option<Structure>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub competition_results: Option<Vec<CompetitionResult>>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Eq, PartialEq, Ord, PartialOrd, Copy, Clone)]
@@ -105,8 +87,7 @@ pub struct CompetitionResult {
 pub(crate) struct License {
     pub user_id: Option<String>,
     pub season: u16,
-    // #[serde(deserialize_with = "deserialize_license_number")]
-    // pub license_number: u32,
+    pub license_number: u32,
     pub structure_id: u32,
     #[serde(rename = "product_id", deserialize_with = "deserialize_license_type")]
     pub license_type: LicenseType,
@@ -169,7 +150,7 @@ const STRUCTURE_ID_KEY: ConfigurationKey = ConfigurationKey::Other {
 const X_HASURA_ROLE: HeaderName = HeaderName::from_static("x-hasura-role");
 const ADMIN: HeaderValue = HeaderValue::from_static("admin");
 
-static USERNAME: LazyLock<&'static str> =
+pub(crate) static USERNAME: LazyLock<&'static str> =
     LazyLock::new(|| secret_value(USERNAME_KEY).expect("myffme username not set"));
 //noinspection SpellCheckingInspection
 static PASSWORD: LazyLock<&'static str> =
