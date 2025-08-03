@@ -1,4 +1,5 @@
 use crate::emergency_contact::EmergencyContact;
+use crate::myffme::address::Address;
 use crate::myffme::{CompetitionResult, Gender, LicenseType, MedicalCertificateStatus, Structure};
 use serde::{Deserialize, Serialize};
 
@@ -19,4 +20,6 @@ pub struct Metadata {
     pub competition_results: Option<Vec<CompetitionResult>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub emergency_contacts: Option<Vec<EmergencyContact>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub address: Option<Address>,
 }

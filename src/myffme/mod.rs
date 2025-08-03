@@ -1,6 +1,6 @@
 pub mod address;
 pub mod email;
-mod graphql;
+// mod graphql;
 pub mod license;
 mod licensee;
 mod me;
@@ -8,8 +8,13 @@ pub mod price;
 mod product;
 mod structure;
 
+use crate::emergency_contact::EmergencyContact;
 use crate::http_client::json_client;
-use crate::myffme::licensee::{licensees, Licensee};
+use crate::mycompet::results::competition_results;
+use crate::myffme::licensee::{
+    address, emergency_contact, license, licensees, user_data, Licensee,
+};
+use crate::myffme::structure::structure_hierarchy_by_id;
 use crate::order::{InsuranceLevel, InsuranceOption};
 use crate::user::Metadata;
 use license::{
@@ -24,9 +29,9 @@ use std::fmt::Write;
 use std::ops::Deref;
 use std::sync::LazyLock;
 use tiered_server::env::{secret_value, ConfigurationKey};
-use tiered_server::norm::{normalize_first_name, normalize_last_name};
+use tiered_server::norm::{normalize_first_name, normalize_last_name, normalize_phone_number};
 use tiered_server::store::Snapshot;
-use tiered_server::user::{Email, IdentificationMethod, User};
+use tiered_server::user::{Email, IdentificationMethod, Sms, User};
 use tracing::{info, warn};
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -66,7 +71,7 @@ pub enum MedicalCertificateStatus {
     WaitingForDocument,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
 pub struct Structure {
     pub id: u32,
     pub name: String,
@@ -75,13 +80,13 @@ pub struct Structure {
     pub department: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Competition {
     pub season: u16,
     pub name: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CompetitionResult {
     pub rank: u16,
     pub category_name: String,
@@ -345,10 +350,165 @@ pub(crate) async fn add_missing_users(
 }
 
 pub(crate) async fn update_users_metadata(
-    _snapshot: &Snapshot,
-    _log: bool,
+    snapshot: &Snapshot,
+    log: bool,
 ) -> Result<Option<String>, String> {
-    todo!()
+    let mut output = if log { Some(String::new()) } else { None };
+    let entries = snapshot
+        .list::<User>("acc/")
+        .map(|(k, v)| (k.to_string(), v))
+        .collect::<Vec<_>>();
+    info!("existing users: {}", entries.len());
+    if let Some(output) = output.as_mut() {
+        let _ = writeln!(output, "existing users: {}", entries.len());
+    }
+    let this_structure: Structure = structure_hierarchy_by_id(*STRUCTURE_ID)
+        .await
+        .ok_or("failed to get structure".to_string())?
+        .into();
+    for (key, mut user) in entries {
+        let first_name = user.first_name.as_str();
+        let last_name = user.last_name.as_str();
+        if let Some(metadata) = user
+            .metadata
+            .take()
+            .and_then(|it| serde_json::from_value::<Metadata>(it).ok())
+        {
+            if let Some(myffme_user_id) = metadata.myffme_user_id.as_ref() {
+                let mut modified = false;
+                let user_data = user_data(myffme_user_id).await.ok_or(format!(
+                    "failed to get data for user {first_name} {last_name}"
+                ))?;
+                let latest_license = if let Some(paths) = user_data.license_paths.as_ref() {
+                    if let Some(license_path) = paths.last() {
+                        Some(license(license_path).await.ok_or(format!(
+                            "failed to get license for user {first_name} {last_name}"
+                        ))?)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                let latest_structure = if let Some(structure_id) =
+                    latest_license.as_ref().map(|it| it.structure.structure)
+                {
+                    if structure_id == this_structure.id {
+                        Some(this_structure.clone())
+                    } else {
+                        if let Some(it) = structure_hierarchy_by_id(structure_id).await {
+                            Some(it.into())
+                        } else {
+                            warn!(
+                                "failed to get structure {}",
+                                latest_license.as_ref().unwrap().structure.name
+                            );
+                            None
+                        }
+                    }
+                } else {
+                    None
+                };
+                let address = if let Some(paths) = user_data.address_paths.as_ref() {
+                    if let Some(address_path) = paths.last() {
+                        Some(address(address_path).await.ok_or(format!(
+                            "failed to get address for user {first_name} {last_name}"
+                        ))?)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                let emergency_contacts = if let Some(paths) =
+                    user_data.emergency_contact_paths.as_ref()
+                {
+                    if paths.is_empty() {
+                        None
+                    } else {
+                        let mut vec = Vec::with_capacity(paths.len());
+                        for path in paths {
+                            let it = emergency_contact(path).await.ok_or(format!(
+                                "failed to get emergency contact for user {first_name} {last_name}"
+                            ))?;
+                            let mut identification_methods = Vec::with_capacity(2);
+                            if let Some(email) = it.email {
+                                identification_methods
+                                    .push(IdentificationMethod::Email(Email::from(email)))
+                            }
+                            if let Some(number) = it.phone_number {
+                                let normalized_number = normalize_phone_number(&number, 33);
+                                if normalized_number.starts_with("+336")
+                                    || normalized_number.starts_with("+337")
+                                {
+                                    identification_methods.push(IdentificationMethod::Sms(Sms {
+                                        number,
+                                        normalized_number,
+                                    }))
+                                }
+                            }
+                            vec.push(EmergencyContact {
+                                normalized_first_name: normalize_first_name(&it.first_name),
+                                first_name: it.first_name,
+                                normalized_last_name: normalize_first_name(&it.last_name),
+                                last_name: it.last_name,
+                                relationship: it.relationship.unwrap_or_default(),
+                                identification: identification_methods,
+                            });
+                        }
+                        Some(vec)
+                    }
+                } else {
+                    None
+                };
+                // TODO update user identification methods
+                let competition_results = competition_results(user_data.license_number).await;
+                let license_number = Some(user_data.license_number);
+                let gender = Some(user_data.gender);
+                let license_type = latest_license.as_ref().map(|it| it.product.product);
+                let latest_license_season = latest_license.as_ref().map(|it| it.season.season);
+                let medical_certificate_status = latest_license
+                    .as_ref()
+                    .map(|it| it.medical_certificate_status);
+                if metadata.license_number != license_number
+                    || metadata.gender != gender
+                    || metadata.license_type != license_type
+                    || metadata.latest_license_season != latest_license_season
+                    || metadata.latest_structure != latest_structure
+                    || metadata.medical_certificate_status != metadata.medical_certificate_status
+                    || metadata.address != address
+                    || metadata.emergency_contacts != emergency_contacts
+                    || metadata.competition_results != competition_results
+                {
+                    modified = true;
+                    user.metadata = Some(
+                        serde_json::to_value(Metadata {
+                            license_number,
+                            gender,
+                            license_type,
+                            latest_license_season,
+                            latest_structure,
+                            medical_certificate_status,
+                            address,
+                            emergency_contacts,
+                            competition_results,
+                            ..metadata
+                        })
+                        .or_else(|err| {
+                            warn!("failed to serialize metadata:\n{err:?}");
+                            Err("failed to serialize metadata".to_string())
+                        })?,
+                    );
+                }
+                if modified {
+                    Snapshot::set_and_return_before_update(key.as_str(), &user)
+                        .await
+                        .ok_or("failed to update user".to_string())?;
+                }
+            }
+        }
+    }
+    Ok(None)
 }
 
 #[cfg(test)]
@@ -390,5 +550,25 @@ mod tests {
             .expect("failed to get bearer token");
         ensure_admin_users_exist(&snapshot()).await.unwrap();
         add_missing_users(&snapshot(), false).await.unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_update_users() {
+        tracing_subscriber::fmt()
+            .compact()
+            .with_ansi(true)
+            .with_target(true)
+            .with_file(true)
+            .with_line_number(true)
+            .without_time()
+            .with_env_filter(tracing_subscriber::EnvFilter::new(
+                "pierre_blanche_server=debug,tiered_server=debug,zip_static_handler=info,hyper=info",
+            ))
+            .init();
+        let token = update_myffme_bearer_token(0, None)
+            .await
+            .expect("failed to get bearer token");
+        update_users_metadata(&snapshot(), false).await.unwrap();
     }
 }

@@ -1,12 +1,12 @@
 use crate::http_client::json_client;
-use crate::myffme::MYFFME_AUTHORIZATION;
+use crate::myffme::{Structure, MYFFME_AUTHORIZATION};
 use hyper::header::{HeaderValue, AUTHORIZATION, ORIGIN, REFERER};
 use reqwest::Url;
+use serde::de::Unexpected::Str;
 use serde::Deserialize;
 #[cfg(test)]
 use tokio::io::AsyncWriteExt;
 
-#[allow(dead_code)]
 #[derive(Deserialize)]
 pub(crate) struct StructureHierarchy {
     #[allow(dead_code)]
@@ -17,6 +17,37 @@ pub(crate) struct StructureHierarchy {
     pub region_structure_id: u32,
     #[serde(alias = "ffme", deserialize_with = "deserialize_id")]
     pub national_structure_id: u32,
+    #[serde(rename = "label")]
+    pub name: String,
+    #[serde(rename = "slug")]
+    pub code: String,
+    pub department: Option<Department>,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct Department {
+    #[serde(rename = "id")]
+    pub number: String,
+    #[serde(rename = "label")]
+    pub name: String,
+}
+
+impl From<StructureHierarchy> for Structure {
+    fn from(value: StructureHierarchy) -> Self {
+        let StructureHierarchy {
+            id,
+            name,
+            code,
+            department,
+            ..
+        } = value;
+        Self {
+            id,
+            name,
+            code: Some(code),
+            department: department.map(|it| format!("{} ({})", it.name, it.number)),
+        }
+    }
 }
 
 #[allow(dead_code)]

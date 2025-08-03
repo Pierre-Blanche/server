@@ -1,3 +1,4 @@
+use crate::emergency_contact::Relationship;
 use crate::http_client::json_client;
 use crate::myffme::address::Address;
 use crate::myffme::license::{deserialize_license_type, deserialize_product_option, ProductOption};
@@ -465,51 +466,58 @@ pub(crate) struct UserData {
 
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]
-pub(crate) struct EmergencyContact {
+pub struct EmergencyContact {
     #[serde(alias = "firstname")]
-    first_name: String,
+    pub(crate) first_name: String,
     #[serde(alias = "lastname")]
-    last_name: String,
+    pub(crate) last_name: String,
     #[serde(rename = "phone")]
-    phone_number: Option<String>,
+    pub(crate) phone_number: Option<String>,
     #[serde(rename = "email")]
-    email: Option<String>,
+    pub(crate) email: Option<String>,
     #[serde(rename = "parentage")]
-    relationship: Option<String>,
+    pub(crate) relationship: Option<Relationship>,
 }
 
 #[derive(Debug, Deserialize)]
-struct StructureWithId {
+pub(crate) struct StructureWithId {
     #[serde(rename = "id")]
-    structure: u32,
+    pub(crate) structure: u32,
+    #[serde(rename = "label")]
+    pub(crate) name: String,
 }
 
 #[derive(Debug, Deserialize)]
-struct SeasonWithId {
+pub(crate) struct SeasonWithId {
     #[serde(rename = "id")]
-    season: u16,
+    pub(crate) season: u16,
 }
 
 #[derive(Debug, Deserialize)]
-struct ProductWithId {
+pub(crate) struct ProductWithId {
     #[serde(rename = "slug", deserialize_with = "deserialize_license_type")]
-    product: LicenseType,
+    pub(crate) product: LicenseType,
 }
 
 #[derive(Debug, Deserialize)]
-struct OptionWrapper {
+pub(crate) struct OptionWrapper {
     #[serde(rename = "option", deserialize_with = "deserialize_product_option")]
-    product_option: ProductOption,
+    pub(crate) product_option: ProductOption,
 }
 
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]
-struct License {
-    season: SeasonWithId,
-    structure: StructureWithId,
-    product: ProductWithId,
+pub(crate) struct License {
+    pub(crate) season: SeasonWithId,
+    pub(crate) structure: StructureWithId,
+    pub(crate) product: ProductWithId,
     #[serde(rename = "licenceOptions")]
-    options: Vec<OptionWrapper>,
+    pub(crate) options: Vec<OptionWrapper>,
+    #[serde(
+        rename = "status",
+        deserialize_with = "deserialize_medical_certificate_status"
+    )]
+    pub(crate) medical_certificate_status: MedicalCertificateStatus,
 }
 
 #[cfg(test)]
@@ -572,7 +580,7 @@ mod tests {
         let elapsed = t0.elapsed().unwrap();
         println!("{elapsed:?}");
         assert_eq!("DAVID", contact.last_name);
-        assert_eq!("mother", contact.relationship.unwrap());
+        assert_eq!(Relationship::Mother, contact.relationship.unwrap());
     }
 
     #[tokio::test]

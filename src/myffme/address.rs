@@ -9,7 +9,7 @@ use serde_json::json;
 use tokio::io::AsyncWriteExt;
 use tracing::warn;
 
-#[derive(Debug, Serialize, Default)]
+#[derive(Debug, Serialize, Default, PartialEq, Eq)]
 pub struct Address {
     #[serde(skip_serializing)]
     pub user_id: Option<String>,
