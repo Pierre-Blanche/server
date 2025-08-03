@@ -295,6 +295,10 @@ pub(crate) async fn add_missing_users(
         if let Some((i, it)) = last {
             if i == 0 {
                 // only one match, set myffme_user_id and license_number
+                info!("assigning license to {first_name} {last_name}");
+                if let Some(output) = output.as_mut() {
+                    let _ = writeln!(output, "assigning license to {first_name} {last_name}");
+                }
                 let mut user = it.clone();
                 user.metadata = Some(
                     serde_json::to_value(metadata)
@@ -304,7 +308,7 @@ pub(crate) async fn add_missing_users(
                     .await
                 {
                     Some(_) => continue,
-                    None => return Err(format!("failed to assign licensee to user {}", user.id)),
+                    None => return Err(format!("failed to assign license to user {}", user.id)),
                 }
             } else {
                 // multiple matches, abort
@@ -350,6 +354,8 @@ pub(crate) async fn update_users_metadata(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tiered_server::store::snapshot;
+    use tiered_server::user::ensure_admin_users_exist;
 
     #[tokio::test]
     #[ignore]
@@ -363,5 +369,26 @@ mod tests {
         assert_ne!(token.token, refreshed.token);
         assert_ne!(token.refresh_token, refreshed.refresh_token);
         println!("token:{}", token.deref());
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_add_missing_users() {
+        tracing_subscriber::fmt()
+            .compact()
+            .with_ansi(true)
+            .with_target(true)
+            .with_file(true)
+            .with_line_number(true)
+            .without_time()
+            .with_env_filter(tracing_subscriber::EnvFilter::new(
+                "pierre_blanche_server=debug,tiered_server=debug,zip_static_handler=info,hyper=info",
+            ))
+            .init();
+        let token = update_myffme_bearer_token(0, None)
+            .await
+            .expect("failed to get bearer token");
+        ensure_admin_users_exist(&snapshot()).await.unwrap();
+        add_missing_users(&snapshot(), false).await.unwrap();
     }
 }

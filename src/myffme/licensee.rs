@@ -140,12 +140,14 @@ pub(crate) struct Licensee {
     pub(crate) medical_certificate_status: MedicalCertificateStatus,
 }
 
+const PAST_SEASONS: usize = 4;
+
 pub(crate) async fn licensees() -> Option<Vec<Licensee>> {
     let current_season = current_season(None);
     let mut licensees = Vec::new();
     let mut ids = BTreeSet::new();
     let mut season = current_season;
-    for _ in 0..5 {
+    for _ in 0..=PAST_SEASONS {
         let mut url = Url::parse("https://api.core.myffme.fr/api/licences/unique").unwrap();
         url.query_pairs_mut()
             .append_pair("pagination", "true")
