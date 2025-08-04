@@ -2,7 +2,6 @@ use crate::http_client::json_client;
 use crate::myffme::{Structure, MYFFME_AUTHORIZATION};
 use hyper::header::{HeaderValue, AUTHORIZATION, ORIGIN, REFERER};
 use reqwest::Url;
-use serde::de::Unexpected::Str;
 use serde::Deserialize;
 #[cfg(test)]
 use tokio::io::AsyncWriteExt;

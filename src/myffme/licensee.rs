@@ -451,7 +451,7 @@ pub(crate) struct UserData {
     #[serde(rename = "mobile")]
     pub(crate) phone_number: Option<String>,
     #[serde(rename = "phone")]
-    pub(crate) alt_phone_number: Option<String>,
+    pub(crate) alternate_phone_number: Option<String>,
     #[serde(rename = "email")]
     pub(crate) email: Option<String>,
     #[serde(rename = "secondaryEmail")]

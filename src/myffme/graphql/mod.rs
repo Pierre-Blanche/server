@@ -3,6 +3,7 @@
 use crate::mycompet::results::competition_results;
 use crate::myffme::graphql::member::{members_by_ids, members_by_structure};
 use crate::myffme::{Member, Metadata, STRUCTURE_ID};
+use hyper::http::{HeaderName, HeaderValue};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::fmt::Write;
@@ -23,6 +24,9 @@ pub mod price;
 mod product;
 mod structure;
 mod update_address;
+
+const X_HASURA_ROLE: HeaderName = HeaderName::from_static("x-hasura-role");
+const ADMIN: HeaderValue = HeaderValue::from_static("admin");
 
 pub(crate) async fn add_missing_users(
     snapshot: &Snapshot,

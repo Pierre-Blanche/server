@@ -16,12 +16,13 @@ use crate::myffme::licensee::{
 };
 use crate::myffme::structure::structure_hierarchy_by_id;
 use crate::order::{InsuranceLevel, InsuranceOption};
+use crate::season::current_season;
 use crate::user::Metadata;
 use license::{
     deserialize_insurance_level, deserialize_insurance_option, deserialize_license_type,
 };
 use pinboard::Pinboard;
-use reqwest::header::{HeaderName, HeaderValue};
+use reqwest::header::HeaderValue;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -29,7 +30,9 @@ use std::fmt::Write;
 use std::ops::Deref;
 use std::sync::LazyLock;
 use tiered_server::env::{secret_value, ConfigurationKey};
-use tiered_server::norm::{normalize_first_name, normalize_last_name, normalize_phone_number};
+use tiered_server::norm::{
+    normalize_email, normalize_first_name, normalize_last_name, normalize_phone_number,
+};
 use tiered_server::store::Snapshot;
 use tiered_server::user::{Email, IdentificationMethod, Sms, User};
 use tracing::{info, warn};
@@ -156,9 +159,6 @@ const PASSWORD_KEY: ConfigurationKey = ConfigurationKey::Other {
 const STRUCTURE_ID_KEY: ConfigurationKey = ConfigurationKey::Other {
     variable_name: "MYFFME_STRUCTURE_ID",
 };
-
-const X_HASURA_ROLE: HeaderName = HeaderName::from_static("x-hasura-role");
-const ADMIN: HeaderValue = HeaderValue::from_static("admin");
 
 pub(crate) static USERNAME: LazyLock<&'static str> =
     LazyLock::new(|| secret_value(USERNAME_KEY).expect("myffme username not set"));
@@ -366,6 +366,7 @@ pub(crate) async fn update_users_metadata(
         .await
         .ok_or("failed to get structure".to_string())?
         .into();
+    let current_season = current_season(None);
     for (key, mut user) in entries {
         let first_name = user.first_name.as_str();
         let last_name = user.last_name.as_str();
@@ -395,16 +396,14 @@ pub(crate) async fn update_users_metadata(
                 {
                     if structure_id == this_structure.id {
                         Some(this_structure.clone())
+                    } else if let Some(it) = structure_hierarchy_by_id(structure_id).await {
+                        Some(it.into())
                     } else {
-                        if let Some(it) = structure_hierarchy_by_id(structure_id).await {
-                            Some(it.into())
-                        } else {
-                            warn!(
-                                "failed to get structure {}",
-                                latest_license.as_ref().unwrap().structure.name
-                            );
-                            None
-                        }
+                        warn!(
+                            "failed to get structure {}",
+                            latest_license.as_ref().unwrap().structure.name
+                        );
+                        None
                     }
                 } else {
                     None
@@ -438,9 +437,7 @@ pub(crate) async fn update_users_metadata(
                             }
                             if let Some(number) = it.phone_number {
                                 let normalized_number = normalize_phone_number(&number, 33);
-                                if normalized_number.starts_with("+336")
-                                    || normalized_number.starts_with("+337")
-                                {
+                                if is_mobile_number(&normalized_number) {
                                     identification_methods.push(IdentificationMethod::Sms(Sms {
                                         number,
                                         normalized_number,
@@ -461,7 +458,109 @@ pub(crate) async fn update_users_metadata(
                 } else {
                     None
                 };
-                // TODO update user identification methods
+                if let Some(email) = user_data.email {
+                    let normalized_email = normalize_email(&email);
+                    if !user.identification.iter().any(|it| match it {
+                        IdentificationMethod::Email(it) => it.normalized_address == email,
+                        _ => false,
+                    }) {
+                        info!("adding email to user {first_name} {last_name}");
+                        if let Some(output) = output.as_mut() {
+                            let _ =
+                                writeln!(output, "adding email to user {first_name} {last_name}");
+                        }
+                        user.identification.push(IdentificationMethod::Email(Email {
+                            normalized_address: normalized_email,
+                            address: email,
+                        }));
+                        modified = true;
+                    }
+                }
+                if let Some(email) = user_data.alternate_email {
+                    let normalized_email = normalize_email(&email);
+                    if !user.identification.iter().any(|it| match it {
+                        IdentificationMethod::Email(it) => it.normalized_address == email,
+                        _ => false,
+                    }) {
+                        info!("adding email to user {first_name} {last_name}");
+                        if let Some(output) = output.as_mut() {
+                            let _ =
+                                writeln!(output, "adding email to user {first_name} {last_name}");
+                        }
+                        user.identification.push(IdentificationMethod::Email(Email {
+                            normalized_address: normalized_email,
+                            address: email,
+                        }));
+                        modified = true;
+                    }
+                }
+                if let Some(number) = user_data.phone_number {
+                    let normalized_number = normalize_phone_number(&number, 33);
+                    if is_mobile_number(&normalized_number) {
+                        if !user.identification.iter().any(|it| match it {
+                            IdentificationMethod::Sms(it) => {
+                                it.normalized_number == normalized_number
+                            }
+                            _ => false,
+                        }) {
+                            info!("adding sms to user {first_name} {last_name}");
+                            if let Some(output) = output.as_mut() {
+                                let _ =
+                                    writeln!(output, "adding sms to user {first_name} {last_name}");
+                            }
+                            user.identification.push(IdentificationMethod::Sms(Sms {
+                                number,
+                                normalized_number,
+                            }));
+                        }
+                        modified = true;
+                    }
+                }
+                if let Some(number) = user_data.alternate_phone_number {
+                    let normalized_number = normalize_phone_number(&number, 33);
+                    if is_mobile_number(&normalized_number) {
+                        if !user.identification.iter().any(|it| match it {
+                            IdentificationMethod::Sms(it) => {
+                                it.normalized_number == normalized_number
+                            }
+                            _ => false,
+                        }) {
+                            info!("adding sms to user {first_name} {last_name}");
+                            if let Some(output) = output.as_mut() {
+                                let _ =
+                                    writeln!(output, "adding sms to user {first_name} {last_name}");
+                            }
+                            user.identification.push(IdentificationMethod::Sms(Sms {
+                                number,
+                                normalized_number,
+                            }));
+                        }
+                        modified = true;
+                    }
+                }
+                if (current_season - (user.date_of_birth / 1_00_00) as u16) < 18 {
+                    if let Some(emergency_contacts) = emergency_contacts.as_ref() {
+                        for emergency_contact in emergency_contacts {
+                            for identification in emergency_contact.identification.iter() {
+                                if !user.identification.contains(identification) {
+                                    let kind = match identification {
+                                        IdentificationMethod::Email(_) => "email",
+                                        IdentificationMethod::Sms(_) => "sms",
+                                        _ => continue,
+                                    };
+                                    info!("adding {kind} to user {first_name} {last_name}");
+                                    if let Some(output) = output.as_mut() {
+                                        let _ = writeln!(
+                                            output,
+                                            "adding {kind} to user {first_name} {last_name}"
+                                        );
+                                    }
+                                    user.identification.push(identification.clone());
+                                }
+                            }
+                        }
+                    }
+                }
                 let competition_results = competition_results(user_data.license_number).await;
                 let license_number = Some(user_data.license_number);
                 let gender = Some(user_data.gender);
@@ -475,12 +574,19 @@ pub(crate) async fn update_users_metadata(
                     || metadata.license_type != license_type
                     || metadata.latest_license_season != latest_license_season
                     || metadata.latest_structure != latest_structure
-                    || metadata.medical_certificate_status != metadata.medical_certificate_status
+                    || metadata.medical_certificate_status != medical_certificate_status
                     || metadata.address != address
                     || metadata.emergency_contacts != emergency_contacts
                     || metadata.competition_results != competition_results
                 {
                     modified = true;
+                    info!("modifying metadata for user {first_name} {last_name}");
+                    if let Some(output) = output.as_mut() {
+                        let _ = writeln!(
+                            output,
+                            "modifying metadata for user {first_name} {last_name}"
+                        );
+                    }
                     user.metadata = Some(
                         serde_json::to_value(Metadata {
                             license_number,
@@ -494,9 +600,9 @@ pub(crate) async fn update_users_metadata(
                             competition_results,
                             ..metadata
                         })
-                        .or_else(|err| {
+                        .map_err(|err| {
                             warn!("failed to serialize metadata:\n{err:?}");
-                            Err("failed to serialize metadata".to_string())
+                            "failed to serialize metadata".to_string()
                         })?,
                     );
                 }
@@ -509,6 +615,10 @@ pub(crate) async fn update_users_metadata(
         }
     }
     Ok(None)
+}
+
+fn is_mobile_number(normalized_number: &str) -> bool {
+    normalized_number.starts_with("+336") || normalized_number.starts_with("+337")
 }
 
 #[cfg(test)]

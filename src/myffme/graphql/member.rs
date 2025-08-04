@@ -6,10 +6,10 @@ use crate::myffme::graphql::health_questionnaire::user_health_questionnaires;
 use crate::myffme::graphql::license::user_licenses;
 use crate::myffme::graphql::medical_certificate::user_medical_certificates;
 use crate::myffme::graphql::structure::{structure_licenses, structures_by_ids};
+use crate::myffme::graphql::{ADMIN, X_HASURA_ROLE};
 use crate::myffme::LicenseType::NonPracticing;
 use crate::myffme::{
-    Gender, License, MedicalCertificateStatus, Member, Metadata, Structure, ADMIN,
-    MYFFME_AUTHORIZATION, X_HASURA_ROLE,
+    Gender, License, MedicalCertificateStatus, Member, Metadata, Structure, MYFFME_AUTHORIZATION,
 };
 use crate::season::current_season;
 use reqwest::header::{HeaderValue, AUTHORIZATION, ORIGIN, REFERER};

@@ -2,9 +2,8 @@ use crate::http_client::json_client;
 use crate::myffme::graphql::options::options;
 use crate::myffme::graphql::product::products;
 use crate::myffme::graphql::structure::{structure_hierarchy_by_id, StructureHierarchy};
-use crate::myffme::{
-    LicenseFees, LicenseType, ADMIN, MYFFME_AUTHORIZATION, STRUCTURE_ID, X_HASURA_ROLE,
-};
+use crate::myffme::graphql::{ADMIN, X_HASURA_ROLE};
+use crate::myffme::{LicenseFees, LicenseType, MYFFME_AUTHORIZATION, STRUCTURE_ID};
 use crate::order::{InsuranceLevel, InsuranceOption};
 use crate::season::current_season;
 use reqwest::header::{HeaderValue, AUTHORIZATION, ORIGIN, REFERER};

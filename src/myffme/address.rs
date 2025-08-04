@@ -1,4 +1,3 @@
-use crate::address::City;
 use crate::http_client::json_client;
 use crate::myffme::licensee::{address, user_data};
 use crate::myffme::MYFFME_AUTHORIZATION;
@@ -6,6 +5,7 @@ use hyper::header::{HeaderValue, AUTHORIZATION, ORIGIN, REFERER};
 use reqwest::Url;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::json;
+#[cfg(test)]
 use tokio::io::AsyncWriteExt;
 use tracing::warn;
 
@@ -58,7 +58,7 @@ impl<'de> Deserialize<'de> for Address {
                 Ok(Address {
                     user_id: addr.user_id,
                     id: addr.id,
-                    address: Some(format!("{} {}", line1, line2)),
+                    address: Some(format!("{line1} {line2}")),
                     insee: addr.insee,
                     zip_code: addr.zip_code,
                     city: addr.city,
