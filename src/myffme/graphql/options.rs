@@ -45,7 +45,7 @@ pub(crate) async fn options() -> Option<(Vec<InsuranceLevelOption>, Vec<Insuranc
         println!("POST {}", url.as_str());
         println!("{}", response.status());
         let text = response.text().await.ok()?;
-        let file_name = format!(".options.json");
+        let file_name = format!(".graphql/.options.json");
         tokio::fs::OpenOptions::new()
             .write(true)
             .truncate(true)
@@ -57,10 +57,7 @@ pub(crate) async fn options() -> Option<(Vec<InsuranceLevelOption>, Vec<Insuranc
             .await
             .unwrap();
         serde_json::from_str::<GraphqlResponse>(&text)
-            .map_err(|e| {
-                eprintln!("{e:?}");
-                e
-            })
+            .inspect_err(|err| eprintln!("{err:?}"))
             .ok()?
             .data
     };
@@ -68,10 +65,7 @@ pub(crate) async fn options() -> Option<(Vec<InsuranceLevelOption>, Vec<Insuranc
     let options = response
         .json::<GraphqlResponse>()
         .await
-        .map_err(|err| {
-            tracing::warn!("{err:?}");
-            err
-        })
+        .inspect_err(|err| tracing::warn!("{err:?}"))
         .ok()?
         .data;
     Some((options.levels, options.options))
@@ -108,10 +102,8 @@ const GRAPHQL_GET_OPTIONS: &str = "\
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::myffme::update_myffme_bearer_token;
     use crate::order::{InsuranceLevel, InsuranceOption};
-    use std::time::SystemTime;
 
     #[tokio::test]
     async fn test_options() {

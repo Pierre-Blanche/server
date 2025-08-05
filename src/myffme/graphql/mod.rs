@@ -279,7 +279,6 @@ mod tests {
     use crate::myffme::graphql::member::{licensees, members_by_structure};
     use crate::myffme::{update_myffme_bearer_token, STRUCTURE_ID};
     use crate::season::current_season;
-    use std::time::SystemTime;
     use tokio::io::AsyncWriteExt;
 
     #[tokio::test]
@@ -296,7 +295,7 @@ mod tests {
             .write(true)
             .truncate(true)
             .create(true)
-            .open(".members.json")
+            .open(".graphql/.members.json")
             .await
             .ok()
             .unwrap()
@@ -312,7 +311,7 @@ mod tests {
             .write(true)
             .truncate(true)
             .create(true)
-            .open(format!(".licensees_{season}.json"))
+            .open(format!(".graphql/.licensees_{season}.json"))
             .await
             .ok()
             .unwrap()

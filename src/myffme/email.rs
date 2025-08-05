@@ -40,7 +40,7 @@ pub(crate) async fn update_email(
         let success = response.status().is_success();
         println!("{}", response.status());
         let text = response.text().await.ok()?;
-        let file_name = format!(".update_email_{myffme_user_id}.json");
+        let file_name = format!(".api/.update_email_{myffme_user_id}.json");
         tokio::fs::OpenOptions::new()
             .write(true)
             .truncate(true)

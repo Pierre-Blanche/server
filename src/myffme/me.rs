@@ -31,7 +31,7 @@ pub(crate) async fn me() -> Option<UserData> {
         println!("GET {}", url.as_str());
         println!("{}", response.status());
         let text = response.text().await.ok()?;
-        let file_name = ".me.json";
+        let file_name = ".api/.me.json";
         tokio::fs::OpenOptions::new()
             .write(true)
             .truncate(true)
@@ -43,20 +43,14 @@ pub(crate) async fn me() -> Option<UserData> {
             .await
             .unwrap();
         serde_json::from_str::<Me>(&text)
-            .map_err(|e| {
-                eprintln!("{e:?}");
-                e
-            })
+            .inspect_err(|err| eprintln!("{err:?}"))
             .ok()?
     };
     #[cfg(not(test))]
     let data = response
         .json::<Me>()
         .await
-        .map_err(|err| {
-            tracing::warn!("{err:?}");
-            err
-        })
+        .inspect_err(|err| tracing::warn!("{err:?}"))
         .ok()?;
     Some(data.user_data)
 }

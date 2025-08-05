@@ -54,20 +54,14 @@ pub(crate) async fn products() -> Option<Vec<Product>> {
             .await
             .unwrap();
         serde_json::from_str::<Vec<Value>>(&text)
-            .map_err(|e| {
-                eprintln!("{e:?}");
-                e
-            })
+            .inspect_err(|err| eprintln!("{err:?}"))
             .ok()?
     };
     #[cfg(not(test))]
     let list = response
         .json::<Vec<Value>>()
         .await
-        .map_err(|err| {
-            tracing::warn!("{err:?}");
-            err
-        })
+        .inspect_err(|err| tracing::warn!("{err:?}"))
         .ok()?;
     Some(
         list.into_iter()

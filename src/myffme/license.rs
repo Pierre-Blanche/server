@@ -81,7 +81,7 @@ impl<'de> serde::de::Visitor<'de> for LicenseTypeVisitor {
     where
         E: Error,
     {
-        LicenseType::try_from(v).map_err(|err| E::custom(err))
+        LicenseType::try_from(v).map_err(E::custom)
     }
 }
 
@@ -103,7 +103,7 @@ impl<'de> serde::de::Visitor<'de> for InsuranceLevelVisitor {
     where
         E: Error,
     {
-        InsuranceLevel::try_from(v).map_err(|err| E::custom(err))
+        InsuranceLevel::try_from(v).map_err(E::custom)
     }
 }
 
@@ -127,7 +127,7 @@ impl<'de> serde::de::Visitor<'de> for InsuranceOptionVisitor {
     where
         E: Error,
     {
-        InsuranceOption::try_from(v).map_err(|err| E::custom(err))
+        InsuranceOption::try_from(v).map_err(E::custom)
     }
 }
 
@@ -159,7 +159,7 @@ impl<'de> serde::de::Visitor<'de> for InsuranceLevelOrOptionVisitor {
         InsuranceLevel::try_from(v)
             .map(InsuranceLevelOrOption::InsuranceLevel)
             .or_else(|_| InsuranceOption::try_from(v).map(InsuranceLevelOrOption::InsuranceOption))
-            .map_err(|err| E::custom(err))
+            .map_err(E::custom)
     }
 }
 

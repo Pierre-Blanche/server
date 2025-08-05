@@ -47,7 +47,7 @@ pub(crate) async fn structures_by_ids(ids: &[u32]) -> Option<BTreeMap<u32, Struc
         println!("POST {}", url.as_str());
         println!("{}", response.status());
         let text = response.text().await.ok()?;
-        let file_name = format!(".structures.json");
+        let file_name = format!(".graphql/.structures.json");
         tokio::fs::OpenOptions::new()
             .write(true)
             .truncate(true)
@@ -59,10 +59,7 @@ pub(crate) async fn structures_by_ids(ids: &[u32]) -> Option<BTreeMap<u32, Struc
             .await
             .unwrap();
         serde_json::from_str::<GraphqlResponse>(&text)
-            .map_err(|e| {
-                eprintln!("{e:?}");
-                e
-            })
+            .inspect_err(|err| eprintln!("{err:?}"))
             .ok()?
             .data
             .list
@@ -71,10 +68,7 @@ pub(crate) async fn structures_by_ids(ids: &[u32]) -> Option<BTreeMap<u32, Struc
     let structures = response
         .json::<GraphqlResponse>()
         .await
-        .map_err(|err| {
-            tracing::warn!("{err:?}");
-            err
-        })
+        .inspect_err(|err| tracing::warn!("{err:?}"))
         .ok()?
         .data
         .list;
@@ -131,7 +125,7 @@ pub(crate) async fn structure_licenses(
         println!("POST {}", url.as_str());
         println!("{}", response.status());
         let text = response.text().await.ok()?;
-        let file_name = format!(".licenses.json");
+        let file_name = format!(".graphql/.licenses.json");
         tokio::fs::OpenOptions::new()
             .write(true)
             .truncate(true)
@@ -143,10 +137,7 @@ pub(crate) async fn structure_licenses(
             .await
             .unwrap();
         serde_json::from_str::<GraphqlResponse>(&text)
-            .map_err(|e| {
-                eprintln!("{e:?}");
-                e
-            })
+            .inspect_err(|err| eprintln!("{err:?}"))
             .ok()?
             .data
             .list
@@ -155,10 +146,7 @@ pub(crate) async fn structure_licenses(
     let licenses = response
         .json::<GraphqlResponse>()
         .await
-        .map_err(|err| {
-            tracing::warn!("{err:?}");
-            err
-        })
+        .inspect_err(|err| tracing::warn!("{err:?}"))
         .ok()?
         .data
         .list;
@@ -220,7 +208,7 @@ pub(crate) async fn structure_hierarchy_by_id(id: u32) -> Option<StructureHierar
         println!("POST {}", url.as_str());
         println!("{}", response.status());
         let text = response.text().await.ok()?;
-        let file_name = format!(".structure.json");
+        let file_name = format!(".graphql/.structure.json");
         tokio::fs::OpenOptions::new()
             .write(true)
             .truncate(true)
@@ -232,10 +220,7 @@ pub(crate) async fn structure_hierarchy_by_id(id: u32) -> Option<StructureHierar
             .await
             .unwrap();
         serde_json::from_str::<GraphqlResponse>(&text)
-            .map_err(|e| {
-                eprintln!("{e:?}");
-                e
-            })
+            .inspect_err(|err| eprintln!("{err:?}"))
             .ok()?
             .data
             .list
@@ -246,10 +231,7 @@ pub(crate) async fn structure_hierarchy_by_id(id: u32) -> Option<StructureHierar
     let structure_hierarchy = response
         .json::<GraphqlResponse>()
         .await
-        .map_err(|err| {
-            tracing::warn!("{err:?}");
-            err
-        })
+        .inspect_err(|err| tracing::warn!("{err:?}"))
         .ok()?
         .data
         .list
@@ -294,9 +276,7 @@ const GRAPHQL_GET_LICENSES_BY_STRUCTURE_ID_AND_SEASON: &str = "\
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::myffme::{update_myffme_bearer_token, STRUCTURE_ID};
-    use std::time::SystemTime;
 
     #[tokio::test]
     async fn test_structure_hierarchy() {

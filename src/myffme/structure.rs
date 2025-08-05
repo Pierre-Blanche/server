@@ -85,20 +85,14 @@ pub async fn structure_hierarchy_by_id(id: u32) -> Option<StructureHierarchy> {
             .await
             .unwrap();
         serde_json::from_str::<StructureHierarchy>(&text)
-            .map_err(|e| {
-                eprintln!("{e:?}");
-                e
-            })
+            .inspect_err(|err| eprintln!("{err:?}"))
             .ok()?
     };
     #[cfg(not(test))]
     let structure_hierarchy = response
         .json::<StructureHierarchy>()
         .await
-        .map_err(|err| {
-            tracing::warn!("{err:?}");
-            err
-        })
+        .inspect_err(|err| tracing::warn!("{err:?}"))
         .ok()?;
     Some(structure_hierarchy)
 }

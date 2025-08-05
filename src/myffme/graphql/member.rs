@@ -111,7 +111,7 @@ pub async fn licensees(structure_id: u32, season: u16) -> Option<Vec<Member>> {
         println!("users");
         println!("{}", response.status());
         let text = response.text().await.ok()?;
-        let file_name = format!(".licensees_{structure_id}_{season}.json");
+        let file_name = format!(".graphql/.licensees_{structure_id}_{season}.json");
         tokio::fs::OpenOptions::new()
             .write(true)
             .truncate(true)
@@ -123,10 +123,7 @@ pub async fn licensees(structure_id: u32, season: u16) -> Option<Vec<Member>> {
             .await
             .unwrap();
         serde_json::from_str::<GraphqlResponse>(&text)
-            .map_err(|err| {
-                eprintln!("{err:?}");
-                err
-            })
+            .inspect_err(|err| eprintln!("{err:?}"))
             .ok()?
             .data
             .list
@@ -135,10 +132,7 @@ pub async fn licensees(structure_id: u32, season: u16) -> Option<Vec<Member>> {
     let users = response
         .json::<GraphqlResponse>()
         .await
-        .map_err(|err| {
-            tracing::warn!("{err:?}");
-            err
-        })
+        .inspect_err(|err| tracing::warn!("{err:?}"))
         .ok()?
         .data
         .list;
@@ -218,10 +212,7 @@ async fn users_response_by_dob(dob: u32) -> Option<Response> {
     client
         .execute(request)
         .await
-        .map_err(|err| {
-            tracing::warn!("{err:?}");
-            err
-        })
+        .inspect_err(|err| tracing::warn!("{err:?}"))
         .ok()
 }
 
@@ -251,10 +242,7 @@ async fn users_response_by_ids(ids: &[&str]) -> Option<Response> {
     client
         .execute(request)
         .await
-        .map_err(|err| {
-            tracing::warn!("{err:?}");
-            err
-        })
+        .inspect_err(|err| tracing::warn!("{err:?}"))
         .ok()
 }
 
@@ -284,10 +272,7 @@ async fn users_response_by_license_numbers(license_numbers: &[u32]) -> Option<Re
     client
         .execute(request)
         .await
-        .map_err(|err| {
-            tracing::warn!("{err:?}");
-            err
-        })
+        .inspect_err(|err| tracing::warn!("{err:?}"))
         .ok()
 }
 
@@ -404,7 +389,7 @@ async fn users_response_to_members(response: Response, season: u16) -> Option<Ve
         println!("users");
         println!("{}", response.status());
         let text = response.text().await.ok()?;
-        let file_name = ".users.json";
+        let file_name = ".graphql/.users.json";
         tokio::fs::OpenOptions::new()
             .write(true)
             .truncate(true)
@@ -416,10 +401,7 @@ async fn users_response_to_members(response: Response, season: u16) -> Option<Ve
             .await
             .unwrap();
         serde_json::from_str::<GraphqlResponse>(&text)
-            .map_err(|err| {
-                eprintln!("{err:?}");
-                err
-            })
+            .inspect_err(|err| eprintln!("{err:?}"))
             .ok()?
             .data
             .list
@@ -428,10 +410,7 @@ async fn users_response_to_members(response: Response, season: u16) -> Option<Ve
     let users = response
         .json::<GraphqlResponse>()
         .await
-        .map_err(|err| {
-            tracing::warn!("{err:?}");
-            err
-        })
+        .inspect_err(|err| tracing::warn!("{err:?}"))
         .ok()?
         .data
         .list;
@@ -481,10 +460,7 @@ async fn users_response_by_structure(structure_id: u32) -> Option<Response> {
     client
         .execute(request)
         .await
-        .map_err(|err| {
-            tracing::warn!("{err:?}");
-            err
-        })
+        .inspect_err(|err| tracing::warn!("{err:?}"))
         .ok()
 }
 
@@ -626,9 +602,7 @@ const GRAPHQL_GET_USERS_BY_STRUCTURE_ID: &str = "\
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::myffme::update_myffme_bearer_token;
-    use std::time::SystemTime;
 
     #[tokio::test]
     async fn test_member_by_license_number() {

@@ -52,7 +52,7 @@ pub(crate) async fn user_health_questionnaires(
         println!("POST {}", url.as_str());
         println!("{}", response.status());
         let text = response.text().await.ok()?;
-        let file_name = format!(".health_questionnaires.json");
+        let file_name = format!(".graphql/.health_questionnaires.json");
         tokio::fs::OpenOptions::new()
             .write(true)
             .truncate(true)
@@ -64,10 +64,7 @@ pub(crate) async fn user_health_questionnaires(
             .await
             .unwrap();
         serde_json::from_str::<GraphqlResponse>(&text)
-            .map_err(|e| {
-                eprintln!("{e:?}");
-                e
-            })
+            .map_err(|err| eprintln!("{err:?}"))
             .ok()?
             .data
             .list
@@ -76,10 +73,7 @@ pub(crate) async fn user_health_questionnaires(
     let documents = response
         .json::<GraphqlResponse>()
         .await
-        .map_err(|err| {
-            tracing::warn!("{err:?}");
-            err
-        })
+        .map_err(|err| eprintln!("{err:?}"))
         .ok()?
         .data
         .list;

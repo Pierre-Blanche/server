@@ -56,7 +56,7 @@ pub(crate) async fn user_addresses(ids: &[&str]) -> Option<BTreeMap<String, Addr
         println!("POST {}", url.as_str());
         println!("{}", response.status());
         let text = response.text().await.ok()?;
-        let file_name = format!(".addresses.json");
+        let file_name = format!(".graphql/.addresses.json");
         tokio::fs::OpenOptions::new()
             .write(true)
             .truncate(true)
@@ -68,10 +68,7 @@ pub(crate) async fn user_addresses(ids: &[&str]) -> Option<BTreeMap<String, Addr
             .await
             .unwrap();
         serde_json::from_str::<GraphqlResponse>(&text)
-            .map_err(|e| {
-                eprintln!("{e:?}");
-                e
-            })
+            .inspect_err(|err| eprintln!("{err:?}"))
             .ok()?
             .data
             .list
@@ -80,10 +77,7 @@ pub(crate) async fn user_addresses(ids: &[&str]) -> Option<BTreeMap<String, Addr
     let addresses = response
         .json::<GraphqlResponse>()
         .await
-        .map_err(|err| {
-            tracing::warn!("{err:?}");
-            err
-        })
+        .inspect_err(|err| tracing::warn!("{err:?}"))
         .ok()?
         .data
         .list;
@@ -150,7 +144,7 @@ pub async fn update_address(
             println!("POST {}", url.as_str());
             println!("{}", response.status());
             let text = response.text().await.ok()?;
-            let file_name = format!(".update_address_{user_id}.json");
+            let file_name = format!(".graphql/.update_address_{user_id}.json");
             tokio::fs::OpenOptions::new()
                 .write(true)
                 .truncate(true)
@@ -162,10 +156,7 @@ pub async fn update_address(
                 .await
                 .unwrap();
             serde_json::from_str::<GraphqlResponse>(&text)
-                .map_err(|err| {
-                    eprintln!("{err:?}");
-                    err
-                })
+                .map_err(|err| eprintln!("{err:?}"))
                 .ok()?
                 .data
                 .result
@@ -175,10 +166,7 @@ pub async fn update_address(
         let affected_rows = response
             .json::<GraphqlResponse>()
             .await
-            .map_err(|err| {
-                tracing::warn!("{err:?}");
-                err
-            })
+            .map_err(|err| eprintln!("{err:?}"))
             .ok()?
             .data
             .result
@@ -219,7 +207,7 @@ pub async fn update_address(
                 println!("POST {}", url.as_str());
                 println!("{}", response.status());
                 let text = response.text().await.ok()?;
-                let file_name = format!(".insert_address_{user_id}.json");
+                let file_name = format!(".graphql/.insert_address_{user_id}.json");
                 tokio::fs::OpenOptions::new()
                     .write(true)
                     .truncate(true)

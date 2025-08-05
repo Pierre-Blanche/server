@@ -304,9 +304,7 @@ impl Extension for ApiExtension {
                     debug!("email update");
                     if let Some(ref myffme_user_id) = user.metadata.as_ref().and_then(|value| {
                         Metadata::deserialize(value)
-                            .map_err(|err| {
-                                warn!("failed to deserialize metadata: {:?}", err);
-                            })
+                            .inspect_err(|err| warn!("failed to deserialize metadata: {err:?}"))
                             .ok()
                             .and_then(|it| it.myffme_user_id)
                     }) {
@@ -349,9 +347,7 @@ impl Extension for ApiExtension {
                         debug!("alternate email update");
                         if let Some(ref myffme_user_id) = user.metadata.as_ref().and_then(|value| {
                             Metadata::deserialize(value)
-                                .map_err(|err| {
-                                    warn!("failed to deserialize metadata: {:?}", err);
-                                })
+                                .inspect_err(|err| warn!("failed to deserialize metadata: {err:?}"))
                                 .ok()
                                 .and_then(|it| it.myffme_user_id)
                         }) {

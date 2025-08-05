@@ -57,7 +57,7 @@ pub(crate) async fn update_email(
             println!("POST {}", url.as_str());
             println!("{}", response.status());
             let text = response.text().await.ok()?;
-            let file_name = format!(".update_email_{user_id}.json");
+            let file_name = format!(".graphql/.update_email_{user_id}.json");
             tokio::fs::OpenOptions::new()
                 .write(true)
                 .truncate(true)
@@ -69,10 +69,7 @@ pub(crate) async fn update_email(
                 .await
                 .unwrap();
             serde_json::from_str::<GraphqlResponse>(&text)
-                .map_err(|err| {
-                    eprintln!("{err:?}");
-                    err
-                })
+                .map_err(|err| eprintln!("{err:?}"))
                 .ok()?
                 .data
                 .result
@@ -82,10 +79,7 @@ pub(crate) async fn update_email(
         let id = response
             .json::<GraphqlResponse>()
             .await
-            .map_err(|err| {
-                tracing::warn!("{err:?}");
-                err
-            })
+            .map_err(|err| eprintln!("{err:?}"))
             .ok()?
             .data
             .result
@@ -117,9 +111,7 @@ const GRAPHQL_UPDATE_EMAIL: &str = "\
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::myffme::update_myffme_bearer_token;
-    use std::time::SystemTime;
 
     #[tokio::test]
     async fn test_update_email() {

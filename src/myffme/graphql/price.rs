@@ -102,7 +102,7 @@ pub(crate) async fn prices(
         println!("POST {}", url.as_str());
         println!("{}", response.status());
         let text = response.text().await.ok()?;
-        let file_name = format!(".prices.json");
+        let file_name = format!(".graphql/.prices.json");
         tokio::fs::OpenOptions::new()
             .write(true)
             .truncate(true)
@@ -114,10 +114,7 @@ pub(crate) async fn prices(
             .await
             .unwrap();
         serde_json::from_str::<GraphqlResponse>(&text)
-            .map_err(|e| {
-                eprintln!("{e:?}");
-                e
-            })
+            .inspect_err(|err| eprintln!("{err:?}"))
             .ok()?
             .data
     };
@@ -129,10 +126,7 @@ pub(crate) async fn prices(
     } = response
         .json::<GraphqlResponse>()
         .await
-        .map_err(|err| {
-            tracing::warn!("{err:?}");
-            err
-        })
+        .inspect_err(|err| tracing::warn!("{err:?}"))
         .ok()?
         .data;
     let mut license_prices: BTreeMap<LicenseType, LicenseFees> = BTreeMap::new();
@@ -217,9 +211,7 @@ const GRAPHQL_GET_PRICES: &str = "\
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::myffme::update_myffme_bearer_token;
-    use std::time::SystemTime;
 
     #[tokio::test]
     async fn test_prices() {

@@ -56,7 +56,7 @@ impl<'de> serde::de::Visitor<'de> for FeeVisitor {
     where
         E: Error,
     {
-        Fee::try_from(v).map_err(|err| E::custom(err))
+        Fee::try_from(v).map_err(E::custom)
     }
 }
 
@@ -128,20 +128,14 @@ async fn product_prices(
             .await
             .unwrap();
         serde_json::from_str::<Vec<ProductPrice>>(&text)
-            .map_err(|e| {
-                eprintln!("{e:?}");
-                e
-            })
+            .inspect_err(|err| eprintln!("{err:?}"))
             .ok()?
     };
     #[cfg(not(test))]
     let list = response
         .json::<Vec<ProductPrice>>()
         .await
-        .map_err(|err| {
-            tracing::warn!("{err:?}");
-            err
-        })
+        .inspect_err(|err| tracing::warn!("{err:?}"))
         .ok()?;
     let mut license_prices: BTreeMap<LicenseType, LicenseFees> = BTreeMap::new();
     for price in list.into_iter() {
@@ -214,20 +208,14 @@ async fn insurance_prices(
             .await
             .unwrap();
         serde_json::from_str::<Vec<OptionPrice>>(&text)
-            .map_err(|e| {
-                eprintln!("{e:?}");
-                e
-            })
+            .inspect_err(|err| eprintln!("{err:?}"))
             .ok()?
     };
     #[cfg(not(test))]
     let list = response
         .json::<Vec<OptionPrice>>()
         .await
-        .map_err(|err| {
-            tracing::warn!("{err:?}");
-            err
-        })
+        .inspect_err(|err| tracing::warn!("{err:?}"))
         .ok()?;
     let mut level_prices = BTreeMap::new();
     let mut option_prices = BTreeMap::new();

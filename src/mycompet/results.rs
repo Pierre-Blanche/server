@@ -18,10 +18,7 @@ pub async fn competition_results(license_number: u32) -> Option<Vec<CompetitionR
     let response = client
         .execute(request)
         .await
-        .map_err(|err| {
-            eprintln!("{err:?}");
-            err
-        })
+        .inspect_err(|err| warn!("{err:?}"))
         .ok()?;
     if !response.status().is_success() {
         warn!("failed to get competition results for license number {license_number}");

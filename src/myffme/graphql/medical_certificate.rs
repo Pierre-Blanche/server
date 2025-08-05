@@ -40,10 +40,7 @@ pub(crate) async fn user_medical_certificates(
     let response = client
         .execute(request)
         .await
-        .map_err(|err| {
-            tracing::warn!("{err:?}");
-            err
-        })
+        .map_err(|err| tracing::warn!("{err:?}"))
         .ok()?;
     #[derive(Deserialize)]
     struct DocumentList {
@@ -59,7 +56,7 @@ pub(crate) async fn user_medical_certificates(
         println!("POST {}", url.as_str());
         println!("{}", response.status());
         let text = response.text().await.ok()?;
-        let file_name = format!(".medical_certificates.json");
+        let file_name = format!(".graphql/.medical_certificates.json");
         tokio::fs::OpenOptions::new()
             .write(true)
             .truncate(true)
@@ -71,10 +68,7 @@ pub(crate) async fn user_medical_certificates(
             .await
             .unwrap();
         serde_json::from_str::<GraphqlResponse>(&text)
-            .map_err(|e| {
-                eprintln!("{e:?}");
-                e
-            })
+            .inspect_err(|err| eprintln!("{err:?}"))
             .ok()?
             .data
             .list
@@ -83,10 +77,7 @@ pub(crate) async fn user_medical_certificates(
     let documents = response
         .json::<GraphqlResponse>()
         .await
-        .map_err(|err| {
-            tracing::warn!("{err:?}");
-            err
-        })
+        .inspect_err(|err| tracing::warn!("{err:?}"))
         .ok()?
         .data
         .list;

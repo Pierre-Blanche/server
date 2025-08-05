@@ -41,7 +41,7 @@ impl<'de> serde::de::Visitor<'de> for MedicalCertificateStatusVisitor {
     where
         E: Error,
     {
-        MedicalCertificateStatus::try_from(v).map_err(|err| E::custom(err))
+        MedicalCertificateStatus::try_from(v).map_err(E::custom)
     }
 }
 
@@ -107,7 +107,7 @@ impl<'de> serde::de::Visitor<'de> for GenderVisitor {
     where
         E: Error,
     {
-        Gender::try_from(v).map_err(|err| E::custom(err))
+        Gender::try_from(v).map_err(E::custom)
     }
 }
 
@@ -176,7 +176,7 @@ pub(crate) async fn licensees() -> Option<Vec<Licensee>> {
             println!("GET {}", url.as_str());
             println!("{}", response.status());
             let text = response.text().await.ok()?;
-            let file_name = format!(".licenses_{season}.json");
+            let file_name = format!(".api/.licenses_{season}.json");
             tokio::fs::OpenOptions::new()
                 .write(true)
                 .truncate(true)
@@ -188,20 +188,14 @@ pub(crate) async fn licensees() -> Option<Vec<Licensee>> {
                 .await
                 .unwrap();
             serde_json::from_str::<Vec<Licensee>>(&text)
-                .map_err(|e| {
-                    eprintln!("{e:?}");
-                    e
-                })
+                .inspect_err(|err| eprintln!("{err:?}"))
                 .ok()?
         };
         #[cfg(not(test))]
         let list = response
             .json::<Vec<Licensee>>()
             .await
-            .map_err(|err| {
-                tracing::warn!("{err:?}");
-                err
-            })
+            .inspect_err(|err| tracing::warn!("{err:?}"))
             .ok()?;
         for it in list {
             if ids.insert(it.myffme_user_id.clone()) {
@@ -238,7 +232,7 @@ pub(crate) async fn user_data(user_id: &str) -> Option<UserData> {
         println!("GET {}", url.as_str());
         println!("{}", response.status());
         let text = response.text().await.ok()?;
-        let file_name = format!(".user_data_{user_id}.json");
+        let file_name = format!(".api/.user_data_{user_id}.json");
         tokio::fs::OpenOptions::new()
             .write(true)
             .truncate(true)
@@ -250,20 +244,14 @@ pub(crate) async fn user_data(user_id: &str) -> Option<UserData> {
             .await
             .unwrap();
         serde_json::from_str::<UserData>(&text)
-            .map_err(|e| {
-                eprintln!("{e:?}");
-                e
-            })
+            .inspect_err(|err| eprintln!("{err:?}"))
             .ok()?
     };
     #[cfg(not(test))]
     let data = response
         .json::<UserData>()
         .await
-        .map_err(|err| {
-            tracing::warn!("{err:?}");
-            err
-        })
+        .inspect_err(|err| tracing::warn!("{err:?}"))
         .ok()?;
     Some(data)
 }
@@ -291,7 +279,7 @@ pub(crate) async fn emergency_contact(path: &str) -> Option<EmergencyContact> {
         println!("{}", response.status());
         let text = response.text().await.ok()?;
         let id = path.split('/').last().unwrap();
-        let file_name = format!(".emergency_contact_{id}.json");
+        let file_name = format!(".api/.emergency_contact_{id}.json");
         tokio::fs::OpenOptions::new()
             .write(true)
             .truncate(true)
@@ -303,20 +291,14 @@ pub(crate) async fn emergency_contact(path: &str) -> Option<EmergencyContact> {
             .await
             .unwrap();
         serde_json::from_str::<EmergencyContact>(&text)
-            .map_err(|e| {
-                eprintln!("{e:?}");
-                e
-            })
+            .inspect_err(|err| eprintln!("{err:?}"))
             .ok()?
     };
     #[cfg(not(test))]
     let data = response
         .json::<EmergencyContact>()
         .await
-        .map_err(|err| {
-            tracing::warn!("{err:?}");
-            err
-        })
+        .inspect_err(|err| tracing::warn!("{err:?}"))
         .ok()?;
     Some(data)
 }
@@ -344,7 +326,7 @@ pub(crate) async fn license(path: &str) -> Option<License> {
         println!("{}", response.status());
         let text = response.text().await.ok()?;
         let id = path.split('/').last().unwrap();
-        let file_name = format!(".license_{id}.json");
+        let file_name = format!(".api/.license_{id}.json");
         tokio::fs::OpenOptions::new()
             .write(true)
             .truncate(true)
@@ -356,20 +338,14 @@ pub(crate) async fn license(path: &str) -> Option<License> {
             .await
             .unwrap();
         serde_json::from_str::<License>(&text)
-            .map_err(|e| {
-                eprintln!("{e:?}");
-                e
-            })
+            .inspect_err(|err| eprintln!("{err:?}"))
             .ok()?
     };
     #[cfg(not(test))]
     let data = response
         .json::<License>()
         .await
-        .map_err(|err| {
-            tracing::warn!("{err:?}");
-            err
-        })
+        .inspect_err(|err| tracing::warn!("{err:?}"))
         .ok()?;
     Some(data)
 }
@@ -397,7 +373,7 @@ pub(crate) async fn address(path: &str) -> Option<Address> {
         println!("{}", response.status());
         let text = response.text().await.ok()?;
         let id = path.split('/').last().unwrap();
-        let file_name = format!(".address_{id}.json");
+        let file_name = format!(".api/.address_{id}.json");
         tokio::fs::OpenOptions::new()
             .write(true)
             .truncate(true)
@@ -409,20 +385,14 @@ pub(crate) async fn address(path: &str) -> Option<Address> {
             .await
             .unwrap();
         serde_json::from_str::<Address>(&text)
-            .map_err(|e| {
-                eprintln!("{e:?}");
-                e
-            })
+            .inspect_err(|err| eprintln!("{err:?}"))
             .ok()?
     };
     #[cfg(not(test))]
     let data = response
         .json::<Address>()
         .await
-        .map_err(|err| {
-            tracing::warn!("{err:?}");
-            err
-        })
+        .inspect_err(|err| tracing::warn!("{err:?}"))
         .ok()?;
     Some(data)
 }

@@ -51,7 +51,7 @@ pub(crate) async fn products() -> Option<Vec<Product>> {
         println!("POST {}", url.as_str());
         println!("{}", response.status());
         let text = response.text().await.ok()?;
-        let file_name = format!(".products.json");
+        let file_name = format!(".graphql/.products.json");
         tokio::fs::OpenOptions::new()
             .write(true)
             .truncate(true)
@@ -63,10 +63,7 @@ pub(crate) async fn products() -> Option<Vec<Product>> {
             .await
             .unwrap();
         serde_json::from_str::<GraphqlResponse>(&text)
-            .map_err(|e| {
-                eprintln!("{e:?}");
-                e
-            })
+            .inspect_err(|err| eprintln!("{err:?}"))
             .ok()?
             .data
             .list
@@ -75,10 +72,7 @@ pub(crate) async fn products() -> Option<Vec<Product>> {
     let products = response
         .json::<GraphqlResponse>()
         .await
-        .map_err(|err| {
-            tracing::warn!("{err:?}");
-            err
-        })
+        .inspect_err(|err| tracing::warn!("{err:?}"))
         .ok()?
         .data
         .list;
@@ -117,9 +111,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::myffme::update_myffme_bearer_token;
-    use std::time::SystemTime;
 
     #[tokio::test]
     async fn test_products() {
