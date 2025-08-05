@@ -73,7 +73,7 @@ pub async fn structure_hierarchy_by_id(id: u32) -> Option<StructureHierarchy> {
         println!("GET {}", url.as_str());
         println!("{}", response.status());
         let text = response.text().await.ok()?;
-        let file_name = format!(".structure_{id}.json");
+        let file_name = format!(".api/.structure_{id}.json");
         tokio::fs::OpenOptions::new()
             .write(true)
             .truncate(true)

@@ -4,3 +4,5 @@
 /pierre_blanche_server.exe
 /.api/.*
 /.graphql/.*
+/.backup.*
+/.users.json
