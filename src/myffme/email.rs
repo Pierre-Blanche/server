@@ -91,4 +91,10 @@ mod tests {
                 .is_some()
         );
     }
+
+    #[tokio::test]
+    #[ignore]
+    async fn fix_missing_email() {
+        todo!()
+    }
 }
