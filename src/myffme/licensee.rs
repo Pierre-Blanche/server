@@ -437,6 +437,7 @@ pub(crate) struct UserData {
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]
 pub struct EmergencyContact {
+    pub(crate) id: String,
     #[serde(alias = "firstname")]
     pub(crate) first_name: String,
     #[serde(alias = "lastname")]

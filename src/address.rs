@@ -65,7 +65,7 @@ pub async fn alternate_city_names(insee_code: &str) -> Option<Vec<String>> {
         println!("GET {}", url.as_str());
         println!("{}", response.status());
         let text = response.text().await.ok()?;
-        let file_name = format!(".alternate_city_names_{insee_code}.json");
+        let file_name = format!(".api/.alternate_city_names_{insee_code}.json");
         tokio::fs::OpenOptions::new()
             .write(true)
             .truncate(true)
@@ -97,7 +97,7 @@ pub async fn cities_by_zip_code(zip_code: &str) -> Option<Vec<City>> {
         println!("GET {}", url.as_str());
         println!("{}", response.status());
         let text = response.text().await.ok()?;
-        let file_name = format!(".city_{zip_code}.json");
+        let file_name = format!(".api/.city_{zip_code}.json");
         tokio::fs::OpenOptions::new()
             .write(true)
             .truncate(true)
@@ -151,7 +151,7 @@ async fn address(insee: Option<&str>, text: &str) -> Option<Vec<Address>> {
         println!("GET {}", url.as_str());
         println!("{}", response.status());
         let text = response.text().await.ok()?;
-        let file_name = ".address.json";
+        let file_name = ".api/.address.json";
         tokio::fs::OpenOptions::new()
             .write(true)
             .truncate(true)

@@ -462,6 +462,7 @@ pub(crate) async fn update_users_metadata(
                                     }
                                 }
                                 vec.push(EmergencyContact {
+                                    id: Some(it.id),
                                     normalized_first_name: normalize_first_name(&it.first_name),
                                     first_name: it.first_name,
                                     normalized_last_name: normalize_first_name(&it.last_name),
@@ -480,7 +481,9 @@ pub(crate) async fn update_users_metadata(
                     if !email.is_empty() {
                         let normalized_email = normalize_email(&email);
                         if !user.identification.iter().any(|it| match it {
-                            IdentificationMethod::Email(it) => it.normalized_address == email,
+                            IdentificationMethod::Email(it) => {
+                                it.normalized_address == normalized_email
+                            }
                             _ => false,
                         }) {
                             info!("adding email to user {first_name} {last_name}");
@@ -503,7 +506,9 @@ pub(crate) async fn update_users_metadata(
                     if !email.is_empty() {
                         let normalized_email = normalize_email(&email);
                         if !user.identification.iter().any(|it| match it {
-                            IdentificationMethod::Email(it) => it.normalized_address == email,
+                            IdentificationMethod::Email(it) => {
+                                it.normalized_address == normalized_email
+                            }
                             _ => false,
                         }) {
                             info!("adding email to user {first_name} {last_name}");
@@ -692,7 +697,7 @@ mod tests {
                 "pierre_blanche_server=debug,tiered_server=debug,zip_static_handler=info,hyper=info",
             ))
             .init();
-        let token = update_myffme_bearer_token(0, None)
+        update_myffme_bearer_token(0, None)
             .await
             .expect("failed to get bearer token");
         ensure_admin_users_exist(&snapshot()).await.unwrap();
@@ -713,7 +718,7 @@ mod tests {
                 "pierre_blanche_server=debug,tiered_server=debug,zip_static_handler=info,hyper=info",
             ))
             .init();
-        let token = update_myffme_bearer_token(0, None)
+        update_myffme_bearer_token(0, None)
             .await
             .expect("failed to get bearer token");
         update_users_metadata(&snapshot(), false).await.unwrap();
