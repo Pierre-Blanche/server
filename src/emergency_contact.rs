@@ -14,7 +14,7 @@ pub enum Relationship {
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct EmergencyContact {
-    pub id: Option<String>,
+    pub id: Option<u32>,
     pub relationship: Relationship,
     pub last_name: String,
     pub normalized_last_name: String,

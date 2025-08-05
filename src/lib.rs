@@ -39,7 +39,7 @@ mod tests {
             .write(true)
             .truncate(true)
             .create(true)
-            .open("backup.tar")
+            .open(".backup.tar")
             .await
             .expect("failed to open backup file")
             .write_all(&backup)
@@ -56,7 +56,7 @@ mod tests {
             .read(true)
             .create(false)
             .write(false)
-            .open("backup.tar")
+            .open(".backup.tar")
             .await
             .expect("failed to open backup file")
             .read_to_end(&mut backup)
