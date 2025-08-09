@@ -1,20 +1,26 @@
 use crate::category::Category;
+use crate::emergency_contact::{EmergencyContact, Relationship};
 use crate::myffme::email::update_email;
 use crate::myffme::LicenseFees;
 use crate::myffme::{add_missing_users, update_users_metadata, LicenseType};
 use crate::order::{
     BaseLicensePrice, EquipmentRental, InsuranceLevel, InsuranceOption, Keyed, Priced,
 };
-use crate::season::{current_season, is_during_discount_period};
+use crate::season::{
+    current_season, is_during_discount_period, APPROXIMATE_NUMBER_OF_SECS_IN_YEAR,
+};
 use crate::user::Metadata;
 use http_body_util::{Either, Empty, Full};
 use hyper::body::{Bytes, Incoming};
 use hyper::header::{ALLOW, CONTENT_TYPE};
 use hyper::{Method, Request, Response, StatusCode};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::sync::Arc;
-use tiered_server::api::{Action, Extension};
+use std::time::UNIX_EPOCH;
+use tiered_server::api::{Action, Extension, RegistrationScreening};
 use tiered_server::headers::{GET, GET_POST, JSON, TEXT};
+use tiered_server::norm::{normalize_email, normalize_first_name, normalize_last_name};
 use tiered_server::session::SessionState;
 use tiered_server::store::snapshot;
 use tiered_server::totp::action::Action::{AddEmail, UpdateEmail};
@@ -372,6 +378,77 @@ impl Extension for ApiExtension {
         }
         Some(())
     }
+    async fn screen_user_registration(
+        &self,
+        _normalized_email: &str,
+        _normalized_last_name: &str,
+        _normalized_first_name: &str,
+        dob: u32,
+        mut params: BTreeMap<String, String>,
+    ) -> RegistrationScreening {
+        let year = (dob / 1_00_00) as u16;
+        if year >= current_year() - 11 {
+            return RegistrationScreening::Reject {
+                reason: "too_young",
+            };
+        }
+        if year >= current_year() - 16 {
+            let relationship = params
+                .get("relationship")
+                .and_then(|it| Relationship::try_from(it.as_str()).ok());
+            let email = params.remove("parent_email");
+            let last_name = params.remove("parent_last_name");
+            let first_name = params.remove("parent_first_name");
+            if let Some(relationship) = relationship
+                && let Some(email) = email
+                && let Some(last_name) = last_name
+                && let Some(first_name) = first_name
+            {
+                let normalized_email = normalize_email(&email);
+                let normalized_last_name = normalize_last_name(&last_name);
+                let normalized_first_name = normalize_first_name(&first_name);
+                let metadata = Metadata {
+                    emergency_contacts: Some(vec![EmergencyContact {
+                        id: None,
+                        relationship,
+                        last_name,
+                        normalized_last_name,
+                        first_name,
+                        normalized_first_name,
+                        identification: vec![IdentificationMethod::Email(Email {
+                            address: email,
+                            normalized_address: normalized_email,
+                        })],
+                    }]),
+                    ..Default::default()
+                };
+                let metadata = Some(serde_json::to_value(metadata).unwrap());
+                RegistrationScreening::Accept {
+                    metadata,
+                    needs_moderation: true,
+                }
+            } else {
+                RegistrationScreening::Reject {
+                    reason: "missing_parent_contact_info",
+                }
+            }
+        } else {
+            RegistrationScreening::Accept {
+                metadata: None,
+                needs_moderation: true,
+            }
+        }
+    }
+}
+
+fn current_year() -> u16 {
+    let timestamp = UNIX_EPOCH.elapsed().unwrap().as_secs() as u32;
+    let year_2020_utc_start_timestamp = 1577836800_u32;
+    let elapsed = timestamp - year_2020_utc_start_timestamp;
+    // can be off by 1 but won't change the result
+    let years = elapsed / APPROXIMATE_NUMBER_OF_SECS_IN_YEAR;
+    let years = years as u16;
+    2020 + years
 }
 
 #[derive(Serialize)]

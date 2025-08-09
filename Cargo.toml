@@ -22,7 +22,7 @@ default-features = false
 features = ["std"]
 
 [dependencies.tokio]
-version = "1.45"
+version = "1.47"
 default-features = false
 features = ["rt", "rt-multi-thread"]
 

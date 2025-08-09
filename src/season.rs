@@ -1,6 +1,6 @@
 use std::time::SystemTime;
 
-const APPROXIMATE_NUMBER_OF_SECS_IN_YEAR: u32 = 31_557_600;
+pub(crate) const APPROXIMATE_NUMBER_OF_SECS_IN_YEAR: u32 = 31_557_600;
 
 pub fn current_season(timestamp: Option<u32>) -> u16 {
     let year_2020_utc_start_timestamp = 1577836800_u32;

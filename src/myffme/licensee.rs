@@ -84,6 +84,19 @@ where
     deserializer.deserialize_str(DateVisitor)
 }
 
+impl TryFrom<&str> for Relationship {
+    type Error = String;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "mother" => Ok(Relationship::Mother),
+            "father" => Ok(Relationship::Father),
+            "other" => Ok(Relationship::Other),
+            other => Err(format!("unknown gender: {other}")),
+        }
+    }
+}
+
 impl TryFrom<&str> for Gender {
     type Error = String;
 
