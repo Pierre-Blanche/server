@@ -44,10 +44,10 @@ pub async fn update_prices() -> Option<()> {
         InsuranceOption::TrailRunning,
     ] {
         let price = snapshot.get::<u16>(option.key());
-        if let Some(found) = options.remove(&option) {
-            if Some(found) != price {
-                Snapshot::set_and_wait_for_update(option.key(), &found).await?;
-            }
+        if let Some(found) = options.remove(&option)
+            && Some(found) != price
+        {
+            Snapshot::set_and_wait_for_update(option.key(), &found).await?;
         }
     }
     if let Some(default_level_price) = default_level_price {

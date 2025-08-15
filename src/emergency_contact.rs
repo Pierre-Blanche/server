@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use tiered_server::user::IdentificationMethod;
 
 #[derive(Default, Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Copy)]
 #[serde(rename_all = "snake_case")]
@@ -17,8 +16,7 @@ pub struct EmergencyContact {
     pub id: Option<u32>,
     pub relationship: Relationship,
     pub last_name: String,
-    pub normalized_last_name: String,
     pub first_name: String,
-    pub normalized_first_name: String,
-    pub identification: Vec<IdentificationMethod>,
+    pub email: Option<String>,
+    pub phone_number: Option<String>,
 }

@@ -1,8 +1,8 @@
 use crate::category::Category;
 use crate::emergency_contact::{EmergencyContact, Relationship};
 use crate::myffme::email::update_email;
-use crate::myffme::LicenseFees;
 use crate::myffme::{add_missing_users, update_users_metadata, LicenseType};
+use crate::myffme::{trim, LicenseFees};
 use crate::order::{
     BaseLicensePrice, EquipmentRental, InsuranceLevel, InsuranceOption, Keyed, Priced,
 };
@@ -20,7 +20,6 @@ use std::sync::Arc;
 use std::time::UNIX_EPOCH;
 use tiered_server::api::{Action, Extension, RegistrationScreening};
 use tiered_server::headers::{GET, GET_POST, JSON, TEXT};
-use tiered_server::norm::{normalize_email, normalize_first_name, normalize_last_name};
 use tiered_server::session::SessionState;
 use tiered_server::store::snapshot;
 use tiered_server::totp::action::Action::{AddEmail, UpdateEmail};
@@ -400,25 +399,18 @@ impl Extension for ApiExtension {
             let last_name = params.remove("parent_last_name");
             let first_name = params.remove("parent_first_name");
             if let Some(relationship) = relationship
-                && let Some(email) = email
+                && let Some(email) = email.and_then(trim)
                 && let Some(last_name) = last_name
                 && let Some(first_name) = first_name
             {
-                let normalized_email = normalize_email(&email);
-                let normalized_last_name = normalize_last_name(&last_name);
-                let normalized_first_name = normalize_first_name(&first_name);
                 let metadata = Metadata {
                     emergency_contacts: Some(vec![EmergencyContact {
                         id: None,
                         relationship,
                         last_name,
-                        normalized_last_name,
                         first_name,
-                        normalized_first_name,
-                        identification: vec![IdentificationMethod::Email(Email {
-                            address: email,
-                            normalized_address: normalized_email,
-                        })],
+                        email: Some(email),
+                        phone_number: None,
                     }]),
                     ..Default::default()
                 };

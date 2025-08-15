@@ -32,16 +32,14 @@ pub async fn update_competition_results(snapshot: &Arc<Snapshot>) -> Option<()> 
         .collect::<Vec<_>>();
     for (key, (mut user, mut metadata)) in current_data.into_iter() {
         let license_number = metadata.license_number.unwrap();
-        if let Some(results) = competition_results(license_number).await {
-            if !results.is_empty() {
-                if let Some(competition_results) = metadata.competition_results {
-                    if results.len() != competition_results.len() {
-                        metadata.competition_results = Some(results);
-                        user.metadata = Some(serde_json::to_value(metadata).unwrap());
-                        Snapshot::set_and_wait_for_update(key, &user).await?;
-                    }
-                }
-            }
+        if let Some(results) = competition_results(license_number).await
+            && !results.is_empty()
+            && let Some(competition_results) = metadata.competition_results
+            && results.len() != competition_results.len()
+        {
+            metadata.competition_results = Some(results);
+            user.metadata = Some(serde_json::to_value(metadata).unwrap());
+            Snapshot::set_and_wait_for_update(key, &user).await?;
         }
     }
     Some(())

@@ -240,12 +240,15 @@ pub async fn update_myffme_bearer_token(
     }
 }
 
-fn trim(str: String) -> String {
+pub(crate) fn trim(str: String) -> Option<String> {
     let trimmed = str.trim();
-    if trimmed.len() == str.len() {
-        str
+    let len = trimmed.len();
+    if len == 0 {
+        None
+    } else if len == str.len() {
+        Some(str)
     } else {
-        trimmed.to_string()
+        Some(trimmed.to_string())
     }
 }
 
@@ -286,10 +289,15 @@ pub(crate) async fn add_missing_users(
             dob,
             ..
         } = licensee;
-        let email = trim(email);
         if lookup.contains_key(&myffme_user_id) {
             continue;
         }
+        let email = trim(email);
+        if email.is_none() {
+            warn!("skipping licensee without email: {}", myffme_user_id);
+            continue;
+        }
+        let email = email.unwrap();
         let metadata = Metadata {
             myffme_user_id: Some(myffme_user_id),
             license_number: Some(license_number),
@@ -303,7 +311,7 @@ pub(crate) async fn add_missing_users(
                 it.date_of_birth == dob
                     && it.normalized_first_name == normalized_first_name
                     && (it.normalized_last_name == normalized_last_name
-                        || (it.email().unwrap_or_default() == email) && !email.is_empty())
+                        || (it.email() == Some(email.as_str())))
             })
             .enumerate()
             .last();
@@ -384,275 +392,229 @@ pub(crate) async fn update_users_metadata(
             .metadata
             .take()
             .and_then(|it| serde_json::from_value::<Metadata>(it).ok())
+            && let Some(myffme_user_id) = metadata.myffme_user_id.as_ref()
         {
-            if let Some(myffme_user_id) = metadata.myffme_user_id.as_ref() {
-                let mut modified = false;
-                let user_data = user_data(myffme_user_id).await.ok_or(format!(
-                    "failed to get data for user {first_name} {last_name}"
-                ))?;
-                let latest_license = if let Some(paths) = user_data.license_paths.as_ref() {
-                    if let Some(license_path) = paths.last() {
-                        Some(license(license_path).await.ok_or(format!(
-                            "failed to get license for user {first_name} {last_name}"
-                        ))?)
-                    } else {
-                        None
-                    }
+            let mut modified = false;
+            let user_data = user_data(myffme_user_id).await.ok_or(format!(
+                "failed to get data for user {first_name} {last_name}"
+            ))?;
+            let latest_license = if let Some(paths) = user_data.license_paths.as_ref() {
+                if let Some(license_path) = paths.last() {
+                    Some(license(license_path).await.ok_or(format!(
+                        "failed to get license for user {first_name} {last_name}"
+                    ))?)
                 } else {
                     None
-                };
-                let latest_structure = if let Some(structure_id) =
-                    latest_license.as_ref().map(|it| it.structure.structure)
-                {
-                    if structure_id == this_structure.id {
-                        Some(this_structure.clone())
-                    } else if let Some(it) = structure_hierarchy_by_id(structure_id).await {
-                        Some(it.into())
-                    } else {
-                        warn!(
-                            "failed to get structure {}",
-                            latest_license.as_ref().unwrap().structure.name
-                        );
-                        None
-                    }
+                }
+            } else {
+                None
+            };
+            let latest_structure = if let Some(structure_id) =
+                latest_license.as_ref().map(|it| it.structure.structure)
+            {
+                if structure_id == this_structure.id {
+                    Some(this_structure.clone())
+                } else if let Some(it) = structure_hierarchy_by_id(structure_id).await {
+                    Some(it.into())
+                } else {
+                    warn!(
+                        "failed to get structure {}",
+                        latest_license.as_ref().unwrap().structure.name
+                    );
+                    None
+                }
+            } else {
+                None
+            };
+            let address = if let Some(paths) = user_data.address_paths.as_ref() {
+                if let Some(address_path) = paths.last() {
+                    Some(address(address_path).await.ok_or(format!(
+                        "failed to get address for user {first_name} {last_name}"
+                    ))?)
                 } else {
                     None
-                };
-                let address = if let Some(paths) = user_data.address_paths.as_ref() {
-                    if let Some(address_path) = paths.last() {
-                        Some(address(address_path).await.ok_or(format!(
-                            "failed to get address for user {first_name} {last_name}"
-                        ))?)
-                    } else {
-                        None
-                    }
-                } else {
+                }
+            } else {
+                None
+            };
+            let emergency_contacts = if let Some(paths) = user_data.emergency_contact_paths.as_ref()
+            {
+                if paths.is_empty() {
                     None
-                };
-                let emergency_contacts =
-                    if let Some(paths) = user_data.emergency_contact_paths.as_ref() {
-                        if paths.is_empty() {
-                            None
-                        } else {
-                            let mut vec = Vec::with_capacity(paths.len());
-                            for path in paths {
-                                let it = emergency_contact(path).await.ok_or(format!(
-                                "failed to get emergency contact for user {first_name} {last_name}"
-                            ))?;
-                                let mut identification_methods = Vec::with_capacity(2);
-                                if let Some(email) = it.email {
-                                    let email = trim(email);
-                                    if !email.is_empty() {
-                                        identification_methods
-                                            .push(IdentificationMethod::Email(Email::from(email)));
-                                    }
-                                }
-                                if let Some(number) = it.phone_number {
-                                    let number = trim(number);
-                                    if !number.is_empty() {
-                                        let normalized_number = normalize_phone_number(&number, 33);
-                                        if is_mobile_number(&normalized_number) {
-                                            identification_methods.push(IdentificationMethod::Sms(
-                                                Sms {
-                                                    number,
-                                                    normalized_number,
-                                                },
-                                            ))
-                                        }
-                                    }
-                                }
-                                vec.push(EmergencyContact {
-                                    id: Some(it.id),
-                                    normalized_first_name: normalize_first_name(&it.first_name),
-                                    first_name: it.first_name,
-                                    normalized_last_name: normalize_first_name(&it.last_name),
-                                    last_name: it.last_name,
-                                    relationship: it.relationship.unwrap_or_default(),
-                                    identification: identification_methods,
-                                });
-                            }
-                            Some(vec)
-                        }
-                    } else {
-                        None
-                    };
-                if let Some(email) = user_data.email {
-                    let email = trim(email);
-                    if !email.is_empty() {
-                        let normalized_email = normalize_email(&email);
-                        if !user.identification.iter().any(|it| match it {
-                            IdentificationMethod::Email(it) => {
-                                it.normalized_address == normalized_email
-                            }
-                            _ => false,
-                        }) {
-                            info!("adding email to user {first_name} {last_name}");
-                            if let Some(output) = output.as_mut() {
-                                let _ = writeln!(
-                                    output,
-                                    "adding email to user {first_name} {last_name}"
-                                );
-                            }
-                            user.identification.push(IdentificationMethod::Email(Email {
-                                normalized_address: normalized_email,
-                                address: email,
-                            }));
-                            modified = true;
-                        }
+                } else {
+                    let mut vec = Vec::with_capacity(paths.len());
+                    for path in paths {
+                        let it = emergency_contact(path).await.ok_or(format!(
+                            "failed to get emergency contact for user {first_name} {last_name}"
+                        ))?;
+                        let email = it.email.and_then(trim);
+                        let phone_number = it.phone_number.and_then(trim);
+                        vec.push(EmergencyContact {
+                            id: Some(it.id),
+                            first_name: it.first_name,
+                            last_name: it.last_name,
+                            relationship: it.relationship.unwrap_or_default(),
+                            email,
+                            phone_number,
+                        });
                     }
+                    Some(vec)
                 }
-                if let Some(email) = user_data.alternate_email {
-                    let email = trim(email);
-                    if !email.is_empty() {
-                        let normalized_email = normalize_email(&email);
-                        if !user.identification.iter().any(|it| match it {
-                            IdentificationMethod::Email(it) => {
-                                it.normalized_address == normalized_email
-                            }
-                            _ => false,
-                        }) {
-                            info!("adding email to user {first_name} {last_name}");
-                            if let Some(output) = output.as_mut() {
-                                let _ = writeln!(
-                                    output,
-                                    "adding email to user {first_name} {last_name}"
-                                );
-                            }
-                            user.identification.push(IdentificationMethod::Email(Email {
-                                normalized_address: normalized_email,
-                                address: email,
-                            }));
-                            modified = true;
-                        }
-                    }
-                }
-                if let Some(number) = user_data.phone_number {
-                    let number = trim(number);
-                    if !number.is_empty() {
-                        let normalized_number = normalize_phone_number(&number, 33);
-                        if is_mobile_number(&normalized_number) {
-                            if !user.identification.iter().any(|it| match it {
-                                IdentificationMethod::Sms(it) => {
-                                    it.normalized_number == normalized_number
-                                }
-                                _ => false,
-                            }) {
-                                info!("adding sms to user {first_name} {last_name}");
-                                if let Some(output) = output.as_mut() {
-                                    let _ = writeln!(
-                                        output,
-                                        "adding sms to user {first_name} {last_name}"
-                                    );
-                                }
-                                user.identification.push(IdentificationMethod::Sms(Sms {
-                                    number,
-                                    normalized_number,
-                                }));
-                            }
-                            modified = true;
-                        }
-                    }
-                }
-                if let Some(number) = user_data.alternate_phone_number {
-                    let number = trim(number);
-                    if !number.is_empty() {
-                        let normalized_number = normalize_phone_number(&number, 33);
-                        if is_mobile_number(&normalized_number) {
-                            if !user.identification.iter().any(|it| match it {
-                                IdentificationMethod::Sms(it) => {
-                                    it.normalized_number == normalized_number
-                                }
-                                _ => false,
-                            }) {
-                                info!("adding sms to user {first_name} {last_name}");
-                                if let Some(output) = output.as_mut() {
-                                    let _ = writeln!(
-                                        output,
-                                        "adding sms to user {first_name} {last_name}"
-                                    );
-                                }
-                                user.identification.push(IdentificationMethod::Sms(Sms {
-                                    number,
-                                    normalized_number,
-                                }));
-                            }
-                            modified = true;
-                        }
-                    }
-                }
-                if (current_season - (user.date_of_birth / 1_00_00) as u16) < 18 {
-                    if let Some(emergency_contacts) = emergency_contacts.as_ref() {
-                        for emergency_contact in emergency_contacts {
-                            for identification in emergency_contact.identification.iter() {
-                                if !user.identification.contains(identification) {
-                                    let kind = match identification {
-                                        IdentificationMethod::Email(_) => "email",
-                                        IdentificationMethod::Sms(_) => "sms",
-                                        _ => continue,
-                                    };
-                                    info!("adding {kind} to user {first_name} {last_name}");
-                                    if let Some(output) = output.as_mut() {
-                                        let _ = writeln!(
-                                            output,
-                                            "adding {kind} to user {first_name} {last_name}"
-                                        );
-                                    }
-                                    user.identification.push(identification.clone());
-                                }
-                            }
-                        }
-                    }
-                }
-                let competition_results = competition_results(user_data.license_number).await;
-                let license_number = Some(user_data.license_number);
-                let gender = Some(user_data.gender);
-                let license_type = latest_license.as_ref().map(|it| it.product.product);
-                let latest_license_season = latest_license.as_ref().map(|it| it.season.season);
-                let medical_certificate_status = latest_license
-                    .as_ref()
-                    .map(|it| it.medical_certificate_status);
-                if metadata.license_number != license_number
-                    || metadata.gender != gender
-                    || metadata.license_type != license_type
-                    || metadata.latest_license_season != latest_license_season
-                    || metadata.latest_structure != latest_structure
-                    || metadata.medical_certificate_status != medical_certificate_status
-                    || metadata.address != address
-                    || metadata.emergency_contacts != emergency_contacts
-                    || metadata.competition_results != competition_results
-                {
-                    modified = true;
-                    info!("modifying metadata for user {first_name} {last_name}");
+            } else {
+                None
+            };
+            if let Some(email) = user_data.email.and_then(trim) {
+                let normalized_email = normalize_email(&email);
+                if !user.identification.iter().any(|it| match it {
+                    IdentificationMethod::Email(it) => it.normalized_address == normalized_email,
+                    _ => false,
+                }) {
+                    info!("adding email to user {first_name} {last_name}");
                     if let Some(output) = output.as_mut() {
-                        let _ = writeln!(
-                            output,
-                            "modifying metadata for user {first_name} {last_name}"
-                        );
+                        let _ = writeln!(output, "adding email to user {first_name} {last_name}");
                     }
-                    user.metadata = Some(
-                        serde_json::to_value(Metadata {
-                            license_number,
-                            gender,
-                            license_type,
-                            latest_license_season,
-                            latest_structure,
-                            medical_certificate_status,
-                            address,
-                            emergency_contacts,
-                            competition_results,
-                            ..metadata
-                        })
-                        .map_err(|err| {
-                            warn!("failed to serialize metadata:\n{err:?}");
-                            "failed to serialize metadata".to_string()
-                        })?,
+                    user.identification.push(IdentificationMethod::Email(Email {
+                        normalized_address: normalized_email,
+                        address: email,
+                    }));
+                    modified = true;
+                }
+            }
+            if let Some(email) = user_data.alternate_email.and_then(trim) {
+                let normalized_email = normalize_email(&email);
+                if !user.identification.iter().any(|it| match it {
+                    IdentificationMethod::Email(it) => it.normalized_address == normalized_email,
+                    _ => false,
+                }) {
+                    info!("adding email to user {first_name} {last_name}");
+                    if let Some(output) = output.as_mut() {
+                        let _ = writeln!(output, "adding email to user {first_name} {last_name}");
+                    }
+                    user.identification.push(IdentificationMethod::Email(Email {
+                        normalized_address: normalized_email,
+                        address: email,
+                    }));
+                    modified = true;
+                }
+            }
+            if let Some(number) = user_data.phone_number.and_then(trim) {
+                let normalized_number = normalize_phone_number(&number, 33);
+                if is_mobile_number(&normalized_number) {
+                    if !user.identification.iter().any(|it| match it {
+                        IdentificationMethod::Sms(it) => it.normalized_number == normalized_number,
+                        _ => false,
+                    }) {
+                        info!("adding sms to user {first_name} {last_name}");
+                        if let Some(output) = output.as_mut() {
+                            let _ = writeln!(output, "adding sms to user {first_name} {last_name}");
+                        }
+                        user.identification.push(IdentificationMethod::Sms(Sms {
+                            number,
+                            normalized_number,
+                        }));
+                    }
+                    modified = true;
+                }
+            }
+            if let Some(number) = user_data.alternate_phone_number.and_then(trim) {
+                let normalized_number = normalize_phone_number(&number, 33);
+                if is_mobile_number(&normalized_number) {
+                    if !user.identification.iter().any(|it| match it {
+                        IdentificationMethod::Sms(it) => it.normalized_number == normalized_number,
+                        _ => false,
+                    }) {
+                        info!("adding sms to user {first_name} {last_name}");
+                        if let Some(output) = output.as_mut() {
+                            let _ = writeln!(output, "adding sms to user {first_name} {last_name}");
+                        }
+                        user.identification.push(IdentificationMethod::Sms(Sms {
+                            number,
+                            normalized_number,
+                        }));
+                    }
+                    modified = true;
+                }
+            }
+            if (current_season - (user.date_of_birth / 1_00_00) as u16) < 18
+                && let Some(emergency_contacts) = emergency_contacts.as_ref()
+            {
+                for emergency_contact in emergency_contacts {
+                    let mut identifications = Vec::with_capacity(2);
+                    if let Some(email) = emergency_contact.email.as_ref() {
+                        identifications
+                            .push(IdentificationMethod::Email(Email::from(email.clone())));
+                    }
+                    if let Some(number) = emergency_contact.phone_number.as_ref() {
+                        identifications.push(IdentificationMethod::Sms(Sms::from(number.clone())));
+                    }
+                    for identification in identifications.into_iter() {
+                        if !user.identification.contains(&identification) {
+                            let kind = match identification {
+                                IdentificationMethod::Email(_) => "email",
+                                IdentificationMethod::Sms(_) => "sms",
+                                _ => continue,
+                            };
+                            info!("adding {kind} to user {first_name} {last_name}");
+                            if let Some(output) = output.as_mut() {
+                                let _ = writeln!(
+                                    output,
+                                    "adding {kind} to user {first_name} {last_name}"
+                                );
+                            }
+                            user.identification.push(identification);
+                        }
+                    }
+                }
+            }
+            let competition_results = competition_results(user_data.license_number).await;
+            let license_number = Some(user_data.license_number);
+            let gender = Some(user_data.gender);
+            let license_type = latest_license.as_ref().map(|it| it.product.product);
+            let latest_license_season = latest_license.as_ref().map(|it| it.season.season);
+            let medical_certificate_status = latest_license
+                .as_ref()
+                .map(|it| it.medical_certificate_status);
+            if metadata.license_number != license_number
+                || metadata.gender != gender
+                || metadata.license_type != license_type
+                || metadata.latest_license_season != latest_license_season
+                || metadata.latest_structure != latest_structure
+                || metadata.medical_certificate_status != medical_certificate_status
+                || metadata.address != address
+                || metadata.emergency_contacts != emergency_contacts
+                || metadata.competition_results != competition_results
+            {
+                modified = true;
+                info!("modifying metadata for user {first_name} {last_name}");
+                if let Some(output) = output.as_mut() {
+                    let _ = writeln!(
+                        output,
+                        "modifying metadata for user {first_name} {last_name}"
                     );
                 }
-                if modified {
-                    Snapshot::set_and_return_before_update(key.as_str(), &user)
-                        .await
-                        .ok_or("failed to update user".to_string())?;
-                }
+                user.metadata = Some(
+                    serde_json::to_value(Metadata {
+                        license_number,
+                        gender,
+                        license_type,
+                        latest_license_season,
+                        latest_structure,
+                        medical_certificate_status,
+                        address,
+                        emergency_contacts,
+                        competition_results,
+                        ..metadata
+                    })
+                    .map_err(|err| {
+                        warn!("failed to serialize metadata:\n{err:?}");
+                        "failed to serialize metadata".to_string()
+                    })?,
+                );
+            }
+            if modified {
+                Snapshot::set_and_return_before_update(key.as_str(), &user)
+                    .await
+                    .ok_or("failed to update user".to_string())?;
             }
         }
     }
@@ -666,8 +628,6 @@ fn is_mobile_number(normalized_number: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tiered_server::store::snapshot;
-    use tiered_server::user::ensure_admin_users_exist;
 
     #[tokio::test]
     #[ignore]
@@ -681,46 +641,5 @@ mod tests {
         assert_ne!(token.token, refreshed.token);
         assert_ne!(token.refresh_token, refreshed.refresh_token);
         println!("token:{}", token.deref());
-    }
-
-    #[tokio::test]
-    #[ignore]
-    async fn test_add_missing_users() {
-        tracing_subscriber::fmt()
-            .compact()
-            .with_ansi(true)
-            .with_target(true)
-            .with_file(true)
-            .with_line_number(true)
-            .without_time()
-            .with_env_filter(tracing_subscriber::EnvFilter::new(
-                "pierre_blanche_server=debug,tiered_server=debug,zip_static_handler=info,hyper=info",
-            ))
-            .init();
-        update_myffme_bearer_token(0, None)
-            .await
-            .expect("failed to get bearer token");
-        ensure_admin_users_exist(&snapshot()).await.unwrap();
-        add_missing_users(&snapshot(), false).await.unwrap();
-    }
-
-    #[tokio::test]
-    #[ignore]
-    async fn test_update_users() {
-        tracing_subscriber::fmt()
-            .compact()
-            .with_ansi(true)
-            .with_target(true)
-            .with_file(true)
-            .with_line_number(true)
-            .without_time()
-            .with_env_filter(tracing_subscriber::EnvFilter::new(
-                "pierre_blanche_server=debug,tiered_server=debug,zip_static_handler=info,hyper=info",
-            ))
-            .init();
-        update_myffme_bearer_token(0, None)
-            .await
-            .expect("failed to get bearer token");
-        update_users_metadata(&snapshot(), false).await.unwrap();
     }
 }
