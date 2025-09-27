@@ -77,7 +77,12 @@ pub async fn competition_results(license_number: u32) -> Option<Vec<CompetitionR
                 let text = col.text().map(|it| it.trim()).collect::<String>();
                 let mut split = text.split('-');
                 let year = split.next();
-                if year.is_none() || split.next().is_none() || split.next().is_some() {
+                if year.is_none() {
+                    warn!("failed to parse season");
+                    return None;
+                }
+                let year = split.next();
+                if year.is_none() || split.next().is_some() {
                     warn!("failed to parse season");
                     return None;
                 }
