@@ -22,19 +22,19 @@ default-features = false
 features = ["std"]
 
 [dependencies.tokio]
-version = "1.47"
+version = "1.52"
 default-features = false
 features = ["rt", "rt-multi-thread"]
 
 [dependencies.hyper]
-version = "1.6"
+version = "1.9"
 default-features = false
 features = []
 
 [dependencies.reqwest]
 version = "0.12"
 default-features = false
-features = ["blocking", "rustls-tls", "multipart", "json", "deflate", "gzip", "brotli", "zstd"]
+features = ["blocking", "rustls-tls-webpki-roots", "multipart", "json", "deflate", "gzip", "brotli", "zstd"]
 
 [dependencies.http-body-util]
 version = "0.1"
@@ -47,7 +47,7 @@ default-features = false
 features = []
 
 [dependencies.scraper]
-version = "0.23"
+version = "0.26"
 default-features = false
 features = []
 
@@ -62,7 +62,7 @@ default-features = false
 features = ["std", "preserve_order"]
 
 [dependencies.fastrand]
-version = "2.3"
+version = "2.4"
 default-features = false
 features = ["std", "getrandom"]
 

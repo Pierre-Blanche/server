@@ -221,10 +221,18 @@ pub(crate) async fn licensees() -> Option<Vec<Licensee>> {
 }
 
 pub(crate) async fn user_data(user_id: &str) -> Option<UserData> {
-    let url = Url::parse(&format!(
+    let mut url = Url::parse(&format!(
         "https://api.core.myffme.fr/api/user_datas/{user_id}"
     ))
     .unwrap();
+    url.query_pairs_mut()
+        .append_pair("groups[0]", "user:basic:read")
+        .append_pair("groups[1]", "user:avatar:read")
+        .append_pair("groups[2]", "id:read")
+        .append_pair("groups[3]", "user:general_informations:read")
+        .append_pair("groups[4]", "user:contact_informations:read")
+        .append_pair("groups[5]", "user:license_informations:read");
+    println!("url: {}", url.as_str());
     let client = json_client();
     let request = client
         .get(url.as_str())
@@ -425,8 +433,8 @@ pub(crate) struct UserData {
     pub(crate) username: Option<String>,
     #[serde(rename = "licenceNumber")]
     pub(crate) license_number: u32,
-    #[serde(rename = "isLicensee")]
-    pub(crate) is_licensee: bool,
+    // #[serde(rename = "isLicensee")]
+    // pub(crate) is_licensee: bool,
     #[serde(rename = "civility", deserialize_with = "deserialize_gender")]
     pub(crate) gender: Gender,
     // #[serde(rename = "licenceNumber")]

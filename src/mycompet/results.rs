@@ -148,7 +148,7 @@ mod tests {
         assert!(!results.is_empty());
         let result = results
             .into_iter()
-            .find(|it| it.competition.season == 2021)
+            .find(|it| it.competition.season == 2022)
             .unwrap();
         assert_eq!(result.rank, 1);
         assert_eq!(result.category_name, "VETERAN");
