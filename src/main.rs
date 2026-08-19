@@ -1,6 +1,7 @@
 use pierre_blanche_server::api::ApiExtension;
 use pierre_blanche_server::update::update_loop;
 use tiered_server::server::serve;
+use tokio_rustls::rustls::crypto::ring::default_provider as ring_default_provider;
 
 #[tokio::main]
 async fn main() {
@@ -16,6 +17,10 @@ async fn main() {
             "pierre_blanche_server=debug,tiered_server=debug,zip_static_handler=info,hyper=info",
         ))
         .init();
+        // Crypto provider setup
+    ring_default_provider()
+        .install_default()
+        .expect("Failed to install ring as default crypto provider");
     #[cfg(not(debug_assertions))]
     tracing_subscriber::fmt()
         .compact()
